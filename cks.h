@@ -17,10 +17,18 @@ public:
      virtual void Lowdin();
      virtual void Lowdin2();
 protected:
-     /// The constraint matrices in the SO basis
+     /// The fragment constraint matrices in the SO basis
      std::vector<SharedMatrix> W_so;
-     /// The Lagrange multiplier, Vc in Phys. Rev. A, 72, 024502 (2005).
+     /// The total constraint matrix
+     SharedMatrix W_tot;
+     /// A temporary matrix
+     SharedMatrix Temp;
+     /// A copy of the one-electron potential
+     SharedMatrix H_copy;
+     /// The Lagrange multiplier, Vc in Phys. Rev. A, 72, 024502 (2005)
      double Vc;
+     /// The constraint to enforce
+     double Nc;
      /// Optimize the Lagrange multiplier
      bool optimize_Vc;
      /// The gradient of the constrained functional W
@@ -33,15 +41,25 @@ protected:
      std::vector<double> frag_nuclear_charge;
      /// The constrained charge on each fragment
      std::vector<double> constrained_charges;
-     /// Build the constrain matrices in the AO basis
-     void build_W_so();
-     /// Compute the gradient with respect to the Lagrange multiplier
-     void gradient_of_W();
+     /// Convergency threshold for the gradient of the constraint
+     double gradW_threshold_;
 
+     /// Build the constrain matrix in the SO basis
+     void build_W_so();
+     /// Compute the gradient of W with respect to the Lagrange multiplier
+     void gradient_of_W();
+     /// Compute the hessian of W with respect to the Lagrange multiplier
+     void hessian_of_W();
+     /// Optimize the constraint
+     void constraint_optimization();
      /// Form the Fock matrix augmented with the constraints
      virtual void form_F();
      /// Compute the value of the Lagrangian, at convergence it yields the energy
      virtual double compute_E();
+     /// Test the convergence of the CKS procedure
+     virtual bool test_convergency();
+
+     bool save_H_;
 };
 
 

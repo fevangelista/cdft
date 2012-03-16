@@ -13,13 +13,47 @@ using namespace psi;
 namespace psi{ namespace scf{
 
 RCKS::RCKS(Options& options, boost::shared_ptr<PSIO> psio)
-    : RKS(options, psio), Vc(0.0), optimize_Vc(true)
+    : RKS(options, psio), Vc(0.0), optimize_Vc(false), gradW_threshold_(1.0e-9)
 {
-    Vc = options.get_double("VC");
-    fprintf(outfile,"VC = %f",Vc);
+    fprintf(outfile,"\n  ==> Constrained DFT <==\n\n");
 
-    if(Vc != 0.0) optimize_Vc = false;
+    Vc = options.get_double("VC");
+    optimize_Vc = options.get_bool("OPTIMIZE_VC");
+
+    if(optimize_Vc){
+        fprintf(outfile,"  The constraint will be optimized.\n");
+    }else{
+        fprintf(outfile,"  The Lagrange multiplier for the constraint will be fixed: Vc = %f .\n",Vc);
+    }
+
+    gradW_threshold_ = options.get_double("W_CONVERGENCE");
+    fprintf(outfile,"  gradW threshold = :%9.2e\n",gradW_threshold_);
+    nfrag = basisset()->molecule()->nfragments();
+    fprintf(outfile,"  Number of fragments: %d\n",nfrag);
+
+    // Check the option CHARGE, if it is defined use it to define the constrained charges
+    int charge_size = options["CHARGE"].size();
+    if (charge_size > 0){
+        if (charge_size == nfrag){
+            for (int n = 0; n < charge_size; ++n){
+                constrained_charges.push_back(options["CHARGE"][n].to_double());
+            }
+        }else{
+            throw InputException("The number of charge constraints does not match the number of fragments", "CHARGE", __FILE__, __LINE__);
+        }
+    }
+
     build_W_so();
+
+    Temp = SharedMatrix(factory_->create_matrix("Temp"));
+    save_H_ = true;
+
+    for (int f = 0; f < nfrag; ++f){
+        fprintf(outfile,"  Fragment %d: constrained charge = %f .\n",f,constrained_charges[f]);
+    }
+    Nc  = frag_nuclear_charge[0] - constrained_charges[0];
+    Nc -= frag_nuclear_charge[1] - constrained_charges[1];
+    fprintf(outfile,"  Constraining Tr[w rho] = Nc = %f .\n\n",Nc);
 }
 
 
@@ -29,6 +63,9 @@ RCKS::~RCKS()
 
 void RCKS::build_W_so()
 {
+    // Allocate the total constraint matrix
+    W_tot = SharedMatrix(factory_->create_matrix("W_tot"));
+
     //    Compute the overlap matrix
     boost::shared_ptr<BasisSet> basisset_ = basisset();
     boost::shared_ptr<Molecule> mol = basisset_->molecule();
@@ -42,8 +79,6 @@ void RCKS::build_W_so()
     boost::shared_ptr<PetiteList> pet(new PetiteList(basisset_, integral_));
     SharedMatrix AO2SO_ = pet->aotoso();
 
-    nfrag = mol->nfragments();
-    fprintf(outfile, "\n  There are %d fragments in this molecule\n", nfrag);
     int min_a = 0;
     int max_a = 0;
     for (int f = 0; f < nfrag; ++f){
@@ -59,6 +94,8 @@ void RCKS::build_W_so()
         }
         frag_nuclear_charge.push_back(frag_Z);
 
+        constrained_charges.push_back(double(frag->molecular_charge())); // TODO Remove the factor of 10.0!!!
+
         // Form a copy of S_ao and zero the rows that are not on this fragment
         max_a = min_a + frag->natom();
         SharedMatrix S_f(S_ao->clone());
@@ -70,7 +107,10 @@ void RCKS::build_W_so()
             }
         }
 
-        constrained_charges.push_back(double(frag->molecular_charge()));
+        // If CHARGE is not defined, then read the charges from the fragment input
+        if(constrained_charges.size() != nfrag){
+            constrained_charges.push_back(double(frag->molecular_charge()));
+        }
 
         // Form W_f = (S_f)^T * S_f and transform it to the SO basis
         SharedMatrix W_f(new Matrix("W_f",basisset_->nbf(),basisset_->nbf()));
@@ -82,36 +122,46 @@ void RCKS::build_W_so()
         W_so.push_back(W_f_so);
         min_a = max_a;
     }
+    W_tot->zero();
+    W_tot->add(W_so[0]);
+    W_tot->subtract(W_so[1]);
 }
 
 void RCKS::form_F()
 {
+    // On the first iteration save H_
+    if (save_H_){
+        H_copy = SharedMatrix(factory_->create_matrix("H_copy"));
+        H_copy->copy(H_);
+        save_H_ = false;
+    }
+
+    // Augement the one-electron potential (H_) with the CDFT terms
+    H_->copy(H_copy);
+    Temp->copy(W_tot);
+    Temp->scale(Vc);
+    H_->add(Temp);  // Temp = Vc * W_tot
+
     Fa_->copy(H_);
     Fa_->add(G_);
 
-    // Create the constraint matrix
-    SharedMatrix W_tot(factory_->create_matrix("W_f_so"));
-    W_tot->add(W_so[0]);
-    W_tot->subtract(W_so[1]);
-    W_tot->scale(Vc);
-    Fa_->add(W_tot);
     gradient_of_W();
-    fprintf(outfile,"  gradW = %f",gradW);
+    hessian_of_W();
+
+    fprintf(outfile,"   @CDFT                Vc = %.7f  gradW = %.7f  hessW = %.7f\n",Vc,gradW,hessW);
 
     if (debug_) {
         Fa_->print(outfile);
         J_->print();
         K_->print();
         G_->print();
-
     }
-    Lowdin2();
 }
 
 double RCKS::compute_E()
 {
-    // E_DFT = 2.0 D*H + 2.0 D*J - \alpha D*K + E_xc
-    double one_electron_E = 2.0 * D_->vector_dot(H_) + Vc * gradW;
+    // E_CDFT = 2.0 D*H + 2.0 D*J - \alpha D*K + E_xc - Vc * Nc
+    double one_electron_E = 2.0 * D_->vector_dot(H_) - Vc * Nc;  // Added the CDFT contribution that is not included in H_
     double coulomb_E = D_->vector_dot(J_);
 
     std::map<std::string, double>& quad = potential_->quadrature_values();
@@ -151,14 +201,103 @@ double RCKS::compute_E()
     return Etotal;
 }
 
+bool RCKS::test_convergency()
+{
+    // energy difference
+    double ediff = E_ - Eold_;
+
+    // RMS of the density
+    Matrix D_rms;
+    D_rms.copy(D_);
+    D_rms.subtract(Dold_);
+    Drms_ = D_rms.rms();
+
+    if (fabs(ediff) < 1.0e-6){
+        if(optimize_Vc){
+            constraint_optimization();
+            diis_manager_->reset_subspace();
+        }
+    }
+
+    if (fabs(ediff) < energy_threshold_ && Drms_ < density_threshold_)
+        if(optimize_Vc){
+            return (std::fabs(gradW) < gradW_threshold_);
+        }else{
+            return true;
+        }
+    else
+        return false;
+
+//    if (fabs(ediff) < energy_threshold_ && Drms_ < density_threshold_)
+//        if(optimize_Vc){
+//            constraint_optimization();
+//            diis_manager_->reset_subspace();
+//            return (std::fabs(gradW) < gradW_threshold_);
+//        }else{
+//            return true;
+//        }
+//    else
+//        return false;
+}
+
+/// Gradient of W
+///
+/// Implements Eq. (6) of Phys. Rev. A 72, 024502 (2005).
 void RCKS::gradient_of_W()
 {
-    gradW  = 2.0 * D_->vector_dot(W_so[0]) - (frag_nuclear_charge[0] - constrained_charges[0]);
-    gradW -= 2.0 * D_->vector_dot(W_so[1]) - (frag_nuclear_charge[1] - constrained_charges[1]);
+//    gradW  = 2.0 * D_->vector_dot(W_so[0]) - (frag_nuclear_charge[0] - constrained_charges[0]);
+//    gradW -= 2.0 * D_->vector_dot(W_so[1]) - (frag_nuclear_charge[1] - constrained_charges[1]);
+    gradW = 2.0 * D_->vector_dot(W_tot) - Nc;
+}
+
+/// Hessian of W
+///
+/// Implements Eq. (7) of Phys. Rev. A 72, 024502 (2005).
+void RCKS::hessian_of_W()
+{
+    hessW = 0.0;
+    // Transform W_tot to the MO basis
+    Temp->transform(W_tot,Ca_);
+
+    //    Ca_->print();
+    //    W_tot->print();
+    //    Temp->print();
+    for (int h = 0; h < nirrep_; h++) {
+        int nmo = nmopi_[h];
+        int nvir = nmopi_[h]-doccpi_[h];
+        int nocc = doccpi_[h];
+//        fprintf(outfile,"h = %d, nmo = %d, nvir = %d, nocc = %d\n",h,nmo,nvir,nocc);
+        if (nvir == 0 or nocc == 0) continue;
+        double** Temp_h = Temp->pointer(h);
+        double* eps = epsilon_a_->pointer(h);
+        for (int i = 0; i < nocc; ++i){
+            for (int a = nocc; a < nmo; ++a){
+                //fprintf(outfile,"  -> (%d,%d): (%f)^2 / (%f - %f) = %f\n",i,a,Temp_h[a][i],eps[i],eps[a],std::pow(Temp_h[a][i],2.0) /  (eps[i] - eps[a]));
+                hessW += Temp_h[a][i] * Temp_h[a][i] /  (eps[i] - eps[a]);
+            }
+        }
+    }
+    hessW *= 4.0; // 2 for the complex conjugate and 2 for the spin cases
+//    Temp->transform(Fa_,Ca_);
+//    Temp->print();
+}
+
+/// Optimize the Lagrange multiplier
+void RCKS::constraint_optimization()
+{
+    fprintf(outfile, "  ==> Constraint optimization <==\n");
+    double threshold = 0.1;
+    double new_Vc = Vc - gradW / hessW;
+    if(std::fabs(new_Vc - Vc) < threshold){
+        Vc = new_Vc;
+    }else{
+        Vc += (new_Vc > Vc ? threshold : -threshold);
+    }
 }
 
 void RCKS::Lowdin2()
 {
+    fprintf(outfile, "  ==> Lowdin Charges <==\n\n");
     for (int f = 0; f < nfrag; ++f){
         double Q_f = -2.0 * D_->vector_dot(W_so[f]);
         Q_f += frag_nuclear_charge[f];
