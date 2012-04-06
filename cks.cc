@@ -4,6 +4,7 @@
 #include <libfock/apps.h>
 #include <libfock/v.h>
 #include <libfock/jk.h>
+#include <libdisp/dispersion.h>
 #include <liboptions/liboptions.h>
 #include <libciomr/libciomr.h>
 #include <libqt/qt.h>
@@ -13,9 +14,9 @@ using namespace psi;
 namespace psi{ namespace scf{
 
 RCKS::RCKS(Options& options, boost::shared_ptr<PSIO> psio)
-    : RKS(options, psio), Vc(0.0), optimize_Vc(false), gradW_threshold_(1.0e-9)
+    : RKS(options, psio), Vc(0.0), optimize_Vc(false), gradW_threshold_(1.0e-9),nW_opt(0), old_gradW(0.0), BFGS_hessW(0.0)
 {
-    fprintf(outfile,"\n  ==> Constrained DFT <==\n\n");
+    fprintf(outfile,"\n  ==> Constrained DFT (RCKS) <==\n\n");
 
     Vc = options.get_double("VC");
     optimize_Vc = options.get_bool("OPTIMIZE_VC");
@@ -46,6 +47,8 @@ RCKS::RCKS(Options& options, boost::shared_ptr<PSIO> psio)
     build_W_so();
 
     Temp = SharedMatrix(factory_->create_matrix("Temp"));
+    Temp2 = SharedMatrix(factory_->create_matrix("Temp2"));
+
     save_H_ = true;
 
     for (int f = 0; f < nfrag; ++f){
@@ -160,20 +163,26 @@ void RCKS::form_F()
 
 double RCKS::compute_E()
 {
-    // E_CDFT = 2.0 D*H + 2.0 D*J - \alpha D*K + E_xc - Vc * Nc
-    double one_electron_E = 2.0 * D_->vector_dot(H_) - Vc * Nc;  // Added the CDFT contribution that is not included in H_
+    // E_DFT = 2.0 D*H + 2.0 D*J - \alpha D*K + E_xc - Vc * Nc
+    double one_electron_E = 2.0*D_->vector_dot(H_) - Vc * Nc;  // Added the CDFT contribution that is not included in H_
     double coulomb_E = D_->vector_dot(J_);
 
     std::map<std::string, double>& quad = potential_->quadrature_values();
     double XC_E = quad["FUNCTIONAL"];
     double exchange_E = 0.0;
-    double alpha = functional_->getExactExchange();
+    double alpha = functional_->x_alpha();
     double beta = 1.0 - alpha;
-    if (functional_->isHybrid()) {
+    if (functional_->is_x_hybrid()) {
         exchange_E -= alpha*Da_->vector_dot(K_);
     }
-    if (functional_->isRangeCorrected()) {
+    if (functional_->is_x_lrc()) {
         exchange_E -=  beta*Da_->vector_dot(wK_);
+    }
+
+    double dashD_E = 0.0;
+    boost::shared_ptr<Dispersion> disp;
+    if (disp) {
+        dashD_E = disp->compute_energy(HF::molecule_);
     }
 
     double Etotal = 0.0;
@@ -182,10 +191,6 @@ double RCKS::compute_E()
     Etotal += coulomb_E;
     Etotal += exchange_E;
     Etotal += XC_E;
-    double dashD_E = 0.0;
-    if (functional_->isDashD()) {
-        dashD_E = functional_->getDashD()->computeEnergy(HF::molecule_);
-    }
     Etotal += dashD_E;
 
     if (debug_) {
@@ -212,32 +217,12 @@ bool RCKS::test_convergency()
     D_rms.subtract(Dold_);
     Drms_ = D_rms.rms();
 
-    if (fabs(ediff) < 1.0e-6){
-        if(optimize_Vc){
-            constraint_optimization();
-            diis_manager_->reset_subspace();
-        }
+    if(optimize_Vc){
+        constraint_optimization();
+        return (fabs(ediff) < energy_threshold_ and Drms_ < density_threshold_ and std::fabs(gradW) < gradW_threshold_);
+    }else{
+        (fabs(ediff) < energy_threshold_ and Drms_ < density_threshold_);
     }
-
-    if (fabs(ediff) < energy_threshold_ && Drms_ < density_threshold_)
-        if(optimize_Vc){
-            return (std::fabs(gradW) < gradW_threshold_);
-        }else{
-            return true;
-        }
-    else
-        return false;
-
-//    if (fabs(ediff) < energy_threshold_ && Drms_ < density_threshold_)
-//        if(optimize_Vc){
-//            constraint_optimization();
-//            diis_manager_->reset_subspace();
-//            return (std::fabs(gradW) < gradW_threshold_);
-//        }else{
-//            return true;
-//        }
-//    else
-//        return false;
 }
 
 /// Gradient of W
@@ -248,7 +233,40 @@ void RCKS::gradient_of_W()
 //    gradW  = 2.0 * D_->vector_dot(W_so[0]) - (frag_nuclear_charge[0] - constrained_charges[0]);
 //    gradW -= 2.0 * D_->vector_dot(W_so[1]) - (frag_nuclear_charge[1] - constrained_charges[1]);
     gradW = 2.0 * D_->vector_dot(W_tot) - Nc;
+    fprintf(outfile,"  gradW(1) = %.9f\n",gradW);
+
+    // Transform W_tot to the MO basis
+    Temp->transform(W_tot,Ca_);
+    // Transform Fa_ to the MO basis
+    Temp2->transform(Fa_,Ca_);
+
+    gradW_mo_resp = 0.0;
+    for (int h = 0; h < nirrep_; h++) {
+        int nmo = nmopi_[h];
+        int nvir = nmopi_[h]-doccpi_[h];
+        int nocc = doccpi_[h];
+        if (nvir == 0 or nocc == 0) continue;
+        double** Temp_h = Temp->pointer(h);
+        double** Temp2_h = Temp2->pointer(h);
+        double* eps = epsilon_a_->pointer(h);
+        for (int i = 0; i < nocc; ++i){
+            for (int a = nocc; a < nmo; ++a){
+                gradW_mo_resp += 4.0 * Temp_h[a][i] * Temp2_h[a][i] / (Temp2_h[i][i] - Temp2_h[a][a]);//  ;(eps[i] - eps[a]);
+            }
+        }
+    }
 }
+
+
+//    SharedMatrix eigvec= factory_->create_shared_matrix("L");
+//    SharedVector eigval(factory_->create_vector());
+//    // Transform W_tot to the MO basis
+//    Temp->transform(W_tot,Ca_);
+//    // Diagonalize W
+//    Temp->diagonalize(eigvec,eigval);
+//    eigvec->print();
+//    eigval->print();
+
 
 /// Hessian of W
 ///
@@ -258,15 +276,10 @@ void RCKS::hessian_of_W()
     hessW = 0.0;
     // Transform W_tot to the MO basis
     Temp->transform(W_tot,Ca_);
-
-    //    Ca_->print();
-    //    W_tot->print();
-    //    Temp->print();
     for (int h = 0; h < nirrep_; h++) {
         int nmo = nmopi_[h];
         int nvir = nmopi_[h]-doccpi_[h];
         int nocc = doccpi_[h];
-//        fprintf(outfile,"h = %d, nmo = %d, nvir = %d, nocc = %d\n",h,nmo,nvir,nocc);
         if (nvir == 0 or nocc == 0) continue;
         double** Temp_h = Temp->pointer(h);
         double* eps = epsilon_a_->pointer(h);
@@ -278,21 +291,67 @@ void RCKS::hessian_of_W()
         }
     }
     hessW *= 4.0; // 2 for the complex conjugate and 2 for the spin cases
-//    Temp->transform(Fa_,Ca_);
-//    Temp->print();
 }
 
 /// Optimize the Lagrange multiplier
 void RCKS::constraint_optimization()
-{
+{   
     fprintf(outfile, "  ==> Constraint optimization <==\n");
-    double threshold = 0.1;
-    double new_Vc = Vc - gradW / hessW;
-    if(std::fabs(new_Vc - Vc) < threshold){
-        Vc = new_Vc;
-    }else{
-        Vc += (new_Vc > Vc ? threshold : -threshold);
+    if(psi::scf::KS::options_.get_str("W_ALGORITHM") == "NEWTON"){
+        // Optimize Vc once you have a good gradient and the gradient is not converged
+        if (std::fabs(gradW_mo_resp / gradW) < 0.1 and std::fabs(gradW) > gradW_threshold_){
+            // First step, do a Newton with the hessW information
+            if(nW_opt == 0){
+                old_Vc = Vc;
+                old_gradW = gradW;
+                // Use the crappy Hessian to do a Newton step with trust radius
+                double new_Vc = Vc - gradW / hessW;
+                double threshold = 0.5;
+                if(std::fabs(new_Vc - Vc) > threshold){
+                    new_Vc = Vc + (new_Vc > Vc ? threshold : -threshold);
+                }
+                fprintf(outfile, "  hessW = %f\n",hessW);
+                Vc = new_Vc;
+            }else{
+                if(std::fabs(Vc - old_Vc) > 1.0e-3){
+                    // We landed somewhere else, update the Hessian
+                    BFGS_hessW = (gradW - old_gradW) / (Vc - old_Vc);
+                    fprintf(outfile, "  BFGS_hessW = %f\n",BFGS_hessW);
+                    old_Vc = Vc;
+                    old_gradW = gradW;
+                }
+                double new_Vc = Vc - gradW / BFGS_hessW;
+                Vc = new_Vc;
+            }
+            // Reset the DIIS subspace
+            diis_manager_->reset_subspace();
+        }
+    }else if (psi::scf::KS::options_.get_str("W_ALGORITHM") == "QUADRATIC"){
+        if (std::fabs(gradW_mo_resp / gradW) < 0.25 and std::fabs(gradW) > gradW_threshold_){
+        // Transform W_tot to the MO basis
+        Temp->transform(W_tot,Ca_);
+        double numerator = 0.0;
+        for (int h = 0; h < nirrep_; h++) {
+            int nocc = doccpi_[h];
+            double** Temp_h = Temp->pointer(h);
+            for (int i = 0; i < nocc; ++i){
+                numerator += 2.0 * Temp_h[i][i];
+            }
+        }
+        numerator -= Nc;
+        Temp->power(2.0);
+        double denominator = 0.0;
+        for (int h = 0; h < nirrep_; h++) {
+            int nocc = doccpi_[h];
+            double** Temp_h = Temp->pointer(h);
+            for (int i = 0; i < nocc; ++i){
+                denominator += 2.0 * Temp_h[i][i];
+            }
+        }
+        Vc += 0.5 * numerator / denominator;
+        }
     }
+    nW_opt += 1;
 }
 
 void RCKS::Lowdin2()
@@ -358,210 +417,5 @@ void RCKS::Lowdin()
         fprintf(outfile,"  Fragment %d, charge = %.8f, constrained charge = %.8f:\n",f,fcharge,double(frag->molecular_charge()));
     }
 }
-
-///**
-// * Given the unique (occ X vir) elements of the orbital rotation matrix, R,
-// * performs a unitary rotation of the orbitals, rigorously maintaining orthogonality.
-// *
-// * @param X The occ X vir unique orbital rotation parameters
-// */
-//void RCKS::rotate_orbitals(SharedMatrix X)
-//{
-//#if 1
-//    // Transform using
-//    // U = 1 + R + 0.5 RR
-//    // then Schmidt orthogonalize U
-//    SharedMatrix R(new Matrix("R", nmopi_, nmopi_));
-//    for (int h = 0; h < nirrep_; ++h) {
-//        int ndocc = doccpi_[h];
-//        int nvirt = nmopi_[h] - doccpi_[h];
-//        if (!ndocc || !nvirt) continue;
-//        double** pR = R->pointer(h);
-//        double** pX = X->pointer(h);
-//        for (int i = 0; i < ndocc; ++i) {
-//            for(int a = 0; a < nvirt; ++a){
-//                pR[i][a + doccpi_[h]] = -pX[i][a];
-//                pR[a + doccpi_[h]][i] = pX[i][a];
-//            }
-//        }
-//    }
-//    SharedMatrix RR(new Matrix("RR", nmopi_, nmopi_));
-//    RR->gemm(false, false, 0.5, R, R, 0.0);
-//    R->add(RR);
-//    for(int h = 0; h < nirrep_; ++h){
-//        int dim = nmopi_[h];
-//        // Add the identity part in there
-//        for(int n = 0; n < nmopi_[h]; ++n) R->add(h, n, n, 1.0);
-//        schmidt(R->pointer(h), dim, dim, outfile);
-//    }
-//    // Rotate the orbitals
-//    SharedMatrix Cnew(new Matrix("C new", nsopi_, nmopi_));
-//    Cnew->gemm(false, false, 1.0, Ca_, R, 0.0);
-//    Ca_->copy(Cnew);
-//#else
-//    // Transform using
-//    // U = 1 + R
-//    // then iteratively orthonormalize the resulting C.  This looks like a bad method, so far.
-//    SharedMatrix R(new Matrix("R", nmopi_, nmopi_));
-//    R->identity();
-//    for (int h = 0; h < nirrep_; ++h) {
-//        int ndocc = doccpi_[h];
-//        int nvirt = nmopi_[h] - doccpi_[h];
-//        if (!ndocc || !nvirt) continue;
-//        double** pR = R->pointer(h);
-//        double** pX = X->pointer(h);
-//        for (int i = 0; i < ndocc; ++i) {
-//            for(int a = 0; a < nvirt; ++a){
-//                pR[i][a + doccpi_[h]] = -pX[i][a];
-//                pR[a + doccpi_[h]][i] = pX[a][i];
-//            }
-//        }
-//    }
-//    /*
-//     * Rotate the orbitals: Cnew = Ca (I + R)
-//     */
-//    SharedMatrix Cnew(new Matrix("C new", nsopi_, nmopi_));
-//    Cnew->gemm(false, false, 1.0, Ca_, R, 0.0);
-//    Ca_->copy(Cnew);
-
-//    /*
-//     * Purify the transformation, to restore orthogonality
-//     */
-//    double error = 0.0;
-//    do{
-//        // Ca(new) = 3/2 Ca(old)
-//        Cnew->copy(Ca_);
-//        Cnew->scale(1.5);
-//        // Ca(new) -= 0.5 C Ct S C
-//        // Recycle the R matrix from above to store the MO overlap
-//        R->transform(S_, Ca_);
-//        Cnew->gemm(false, false, -0.5, Ca_, R, 1.0);
-//        SharedMatrix delta(Cnew->clone());
-//        delta->set_name("Delta C");
-//        delta->subtract(Ca_);
-//        error = delta->rms();
-//        Ca_->copy(Cnew);
-//        fprintf(outfile, "\t\tOrthogonalization error is %16.10f (%16.10f)\n",
-//                error, density_threshold_);
-//    } while(error > density_threshold_);
-//#endif
-//}
-
-//double RCKS::compute_energy()
-//{
-//    std::string reference = options_.get_str("REFERENCE");
-
-//    /*
-//     * Cheesy guess at an orthogonal set of MOs
-//     */
-//    form_H();
-//    form_Shalf();
-//    integrals();
-//    if(options_.get_str("GUESS") != "READ")
-//        guess();
-
-//    /*
-//     * Set up the CG solver
-//     */
-//    boost::shared_ptr<RCPHF> cphf(new RCPHF());
-//    cphf->preiterations();
-//    cphf->set_print(0);
-//    cphf->jk()->set_print(0);
-//    std::map<std::string, SharedMatrix>& tasks  = cphf->b();
-//    std::map<std::string, SharedMatrix>& results = cphf->x();
-
-//    iteration_ = 1;
-//    bool converged = false;
-//    if (Communicator::world->me() == 0) {
-//        fprintf(outfile, "  ==> Iterations <==\n\n");
-//        fprintf(outfile, "                        Total Energy        Delta E     Density RMS\n\n");
-//    }
-//    fflush(outfile);
-
-//    Drms_ = 0.1;
-//    /*
-//     * Build the Fock matrix and assign the diagonal elements to epsilon
-//     */
-//    form_D();
-//    form_G();
-//    form_F();
-//    E_ = compute_E();
-//    do{
-//        /*
-//         * Compute the gradient (Fia)
-//         */
-//        Dimension zerodim = Dimension(nirrep_);
-//        Dimension virtpi = nmopi_ - doccpi_;
-//#if 1
-//        // Obtain the eigenvalues exactly, and transform only the OV block
-//        // of the Fock matrix to compute the MO basis orbital gradient
-//        View oview(Ca_, nsopi_, doccpi_);
-//        View vview(Ca_, nsopi_, virtpi, zerodim, doccpi_);
-//        SharedMatrix Co = oview();
-//        Co->set_name("Occupied MO Coefficients");
-//        SharedMatrix Cv = vview();
-//        Cv->set_name("Virtual MO Coefficients");
-//        SharedMatrix temp(new Matrix("Temp doccXnso", doccpi_, nsopi_));
-//        temp->gemm(true, false, 1.0, Co, Fa_, 0.0);
-//        SharedMatrix grad(new Matrix("Orbital Gradient", doccpi_, virtpi));
-//        grad->gemm(false, false, 1.0, temp, Cv, 0.0);
-//        diag_F_temp_->transform(Fa_, X_);
-//        // Diagonalize, but get only the eigenvalues
-//        diag_F_temp_->diagonalize(temp, epsilon_a_, Matrix::EvalsOnlyAscending);
-//#else
-//        // Obtain the eigenvalues as the diagonals of the fock matrix
-//        SharedMatrix moF(new Matrix("F (MO)", nmopi_, nmopi_));
-//        moF->transform(Fa_, Ca_);
-//        for(int h = 0; h < nirrep_; ++h)
-//            for(int p = 0; p < nmopi_[h]; ++p)
-//                epsilon_a_->set(h, p, moF->get(h, p, p));
-//        View gradview(moF, doccpi_, virtpi, zerodim, doccpi_);
-//        SharedMatrix grad = gradview();
-//#endif
-
-//        /*
-//         * Compute/contract the hessian
-//         */
-//        grad->scale(-1.0);
-//        // Task and solve linear Equations
-//        tasks["Orbital Gradient"] = grad;
-//        cphf->set_convergence(Drms_ / 10.0);
-//        cphf->set_reference(Process::environment.reference_wavefunction());
-//        cphf->compute_energy();
-//        SharedMatrix X = results["Orbital Gradient"];
-//        rotate_orbitals(X);
-
-//        form_D();
-//        form_G();
-//        form_F();
-
-//        Drms_ = grad->rms();
-//        Eold_ = E_;
-//        E_ = compute_E();
-
-//        std::string status;
-//        if (Communicator::world->me() == 0) {
-//            fprintf(outfile, "   @%s iter %3d: %20.14f   %12.5e   %-11.5e %s\n",
-//                              reference.c_str(), iteration_, E_, E_ - Eold_, Drms_, status.c_str());
-//            fflush(outfile);
-//        }
-//        converged = Drms_ < density_threshold_ && fabs(E_ - Eold_) < energy_threshold_;
-//        ++iteration_;
-//    }while (!converged && iteration_ < maxiter_ );
-
-//    if (converged) {
-//        fprintf(outfile, "\n  Energy converged.\n");
-//        fprintf(outfile, "\n  @%s Final Energy: %20.14f",reference.c_str(), E_);
-//    }else{
-//        fprintf(outfile, "\n Energy did not converge!\n");
-//    }
-
-//    // We're not guaranteed canonical orbitals, because o-o and v-v rotations are not considered.
-//    // This can be done by calling semicanonicalize() to diagonalize only subblocks, but for now
-//    // I'll just diagonalize the full matrix.
-//    Fa_->diagonalize(Ca_, epsilon_a_, Matrix::Ascending);
-
-//    return E_;
-//}
 
 }} // Namespaces
