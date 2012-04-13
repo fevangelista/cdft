@@ -74,13 +74,23 @@ protected:
 class UCKS : public UKS {
 public:
      UCKS(Options &options, boost::shared_ptr<PSIO> psio);
+     UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<UCKS> gs_scf);
      virtual ~UCKS();
-//     /// Compute the Lowdin charges
-//     virtual void Lowdin();
-//     virtual void Lowdin2();
 protected:
      /// The fragment constraint matrices in the SO basis
-     std::vector<SharedMatrix> W_so;
+     std::vector<SharedMatrix> W_frag;
+     /// The alpha excitation constraint matrices in the SO basis
+     std::vector<SharedMatrix> W_a_exc;
+     /// The beta excitation constraint matrices in the SO basis
+     std::vector<SharedMatrix> W_b_exc;
+     /// The alpha MO coefficients for each electronic state
+     std::vector<SharedMatrix> state_Ca;
+     /// The beta MO coefficients for each electronic state
+     std::vector<SharedMatrix> state_Cb;
+     /// The alpha density matrix for each electronic state
+     std::vector<SharedMatrix> state_Da;
+     /// The beta density matrix for each electronic state
+     std::vector<SharedMatrix> state_Db;
      /// The constraint objects
      std::vector<SharedConstraint> constraints;
      /// A temporary matrix
@@ -95,6 +105,8 @@ protected:
      SharedVector Vc_old;
      /// Optimize the Lagrange multiplier
      bool optimize_Vc;
+     /// Optimize the Lagrange multiplier
+     bool do_excitation;
      /// The number of constraints
      int nconstraints;
      /// The gradient of the constrained functional W
@@ -115,9 +127,12 @@ protected:
      double gradW_threshold_;
 
      int nW_opt;
-
-     /// Build the constrain matrices in the SO basis
-     void build_W_so();
+     /// Class initializer
+     void init(Options &options, boost::shared_ptr<UCKS> gs_scf);
+     /// Build the fragment constrain matrices in the SO basis
+     void build_W_frag();
+     /// Build the excitation constraint matrices in the SO basis
+     void build_W_exc();
      /// Compute the gradient of W with respect to the Lagrange multiplier
      void gradient_of_W();
      /// Compute the hessian of W with respect to the Lagrange multiplier
@@ -126,6 +141,10 @@ protected:
      void hessian_update(SharedMatrix h, SharedVector dx, SharedVector dg);
      /// Optimize the constraint
      void constraint_optimization();
+     /// Compute the overlap of this solution to the n-th state
+     double compute_overlap(int n);
+
+     // Overloaded UKS function
      /// Form the Fock matrix augmented with the constraints
      virtual void form_F();
      /// Compute the value of the Lagrangian, at convergence it yields the energy
