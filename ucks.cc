@@ -65,48 +65,6 @@ void UCKS::init(Options &options, boost::shared_ptr<UCKS> gs_scf)
         }
     }
 
-    if(do_excitation){
-        // Save the ground state MOs and density matrix
-        state_Ca.push_back(gs_scf->Ca_->clone());
-        state_Cb.push_back(gs_scf->Cb_->clone());
-        state_Da.push_back(gs_scf->Da_->clone());
-        state_Db.push_back(gs_scf->Db_->clone());
-
-        // Build the projection operator onto the density
-        build_W_exc();
-        int nalpha = 0;
-        int nbeta = 0;
-        for (int h; h < nirrep_; ++h){
-            nalpha += doccpi_[h] + soccpi_[h];
-            nbeta  += doccpi_[h];
-        }
-
-        // Check the option ALPHA_EXCITATION, if it is defined use it to define the constrained excitation, "-" skips the constraint
-        for (int f = 0; f < int(options["ALPHA_EXCITATION"].size()); ++f){
-            if(options["ALPHA_EXCITATION"][f].to_string() != "-"){
-                double constrained_excitation = options["ALPHA_EXCITATION"][f].to_double();
-                double Nc = nalpha - constrained_excitation;
-                SharedConstraint constraint(new Constraint(W_a_exc[0],Nc,0.5,0.0,"a_exc(" + to_string(f) + ")"));
-                constraints.push_back(constraint);
-                fprintf(outfile,"  Fragment %d: constrained alpha excitation   = %f .\n",f,constrained_excitation);
-            }else{
-                fprintf(outfile,"  Fragment %d: no alpha excitation constraint specified .\n",f);
-            }
-        }
-        // Check the option BETA_EXCITATION, if it is defined use it to define the constrained excitation, "-" skips the constraint
-        for (int f = 0; f < int(options["BETA_EXCITATION"].size()); ++f){
-            if(options["BETA_EXCITATION"][f].to_string() != "-"){
-                double constrained_excitation = options["BETA_EXCITATION"][f].to_double();
-                double Nc = nbeta - constrained_excitation;
-                SharedConstraint constraint(new Constraint(W_b_exc[0],Nc,0.0,0.5,"b_exc(" + to_string(f) + ")"));
-                constraints.push_back(constraint);
-                fprintf(outfile,"  Fragment %d: constrained beta excitation   = %f .\n",f,constrained_excitation);
-            }else{
-                fprintf(outfile,"  Fragment %d: no beta excitation constraint specified .\n",f);
-            }
-        }
-    }
-
     nconstraints = static_cast<int>(constraints.size());
     gradW = SharedVector(new Vector("gradW",nconstraints));
     gradW_old = SharedVector(new Vector("gradW_old",nconstraints));
@@ -115,23 +73,54 @@ void UCKS::init(Options &options, boost::shared_ptr<UCKS> gs_scf)
     Vc_old = SharedVector(new Vector("Vc_old",nconstraints));
     hessW = SharedMatrix(new Matrix("hessW",nconstraints,nconstraints));
     hessW_BFGS = SharedMatrix(new Matrix("hessW_BFGS",nconstraints,nconstraints));
-
+    OptHoles.push_back(SharedVector(new Vector("Optimized Hole Coefficients",nirrep_,nsopi_)));
     H_copy = SharedMatrix(factory_->create_matrix("H_copy"));
     Temp = SharedMatrix(factory_->create_matrix("Temp"));
     Temp2 = SharedMatrix(factory_->create_matrix("Temp2"));
+    Ua = SharedMatrix(factory_->create_matrix("U alpha"));
+    Ub = SharedMatrix(factory_->create_matrix("U beta"));
+
+    if(do_excitation){
+        // Save the ground state MOs and density matrix
+        state_epsilon_a.push_back(SharedVector(gs_scf->epsilon_a_->clone()));
+        state_Ca.push_back(gs_scf->Ca_->clone());
+        state_Cb.push_back(gs_scf->Cb_->clone());
+
+        // Find the HOMO
+        int homo_h = 0;
+        int homo_p = 0;
+        double homo_e = -1.0e9;
+        for (int h = 0; h < nirrep_; h++) {
+            int nocc = nalphapi_[h];
+                    fprintf(outfile,"  nocc(%d) = %d\n",h,nocc);
+            if (nocc == 0) continue;
+            for (int p = 0; p < nocc; ++p){
+                fprintf(outfile,"  epsilon(%d) = %f\n",p,state_epsilon_a[0]->get(h,p));
+                if(state_epsilon_a[0]->get(h,p) > homo_e){
+                   homo_h = h;
+                   homo_p = p;
+                   homo_e = state_epsilon_a[0]->get(h,p);
+                }
+            }
+        }
+        fprintf(outfile,"  The HOMO orbital has energy %.9f and is %d of irrep %d",homo_e,homo_p,homo_h);
+        OptHoles[0]->zero();
+        OptHoles[0]->set(homo_h,homo_p,1.0);
+        OptHoles[0]->print();
+        Pa = SharedMatrix(factory_->create_matrix("U alpha"));
+    }
+
+    for (int f = 0; f < std::min(int(options["VC"].size()),nconstraints); ++f){
+        if(options["VC"][f].to_string() != "-"){
+            Vc->set(f,options["VC"][f].to_double());
+        }else{
+            Vc->set(f,0.0);
+        }
+        fprintf(outfile,"  The Lagrange multiplier for constraint %d will be initialized to Vc = %f .\n",f,options["VC"][f].to_double());
+    }
 
     if(optimize_Vc){
         fprintf(outfile,"  The constraint will be optimized.\n");
-    }else{
-        for (int f = 0; f < std::min(int(options["VC"].size()),nconstraints); ++f){
-            if(options["VC"][f].to_string() != "-"){
-                Vc->set(f,options["VC"][f].to_double());
-                fprintf(outfile,"  The Lagrange multiplier for constraint %d will be fixed to Vc = %f .\n",f,options["VC"][f].to_double());
-            }else{
-                Vc->set(f,0.0);
-                fprintf(outfile,"  The Lagrange multiplier for constraint %d will be fixed to Vc = %f .\n",f,0.0);
-            }
-        }
     }
     save_H_ = true;
 }
@@ -204,6 +193,35 @@ void UCKS::build_W_exc()
     SharedMatrix W_be(state_Db[0]->clone());
     W_be->transform(S_);
     W_b_exc.push_back(W_be);
+
+//    SharedMatrix W_a_homo(factory_->create_matrix("W_a_homo"));
+//    // Find the HOMO
+//    int homo_h = 0;
+//    int homo_p = 0;
+//    double homo_e = -1.0e9;
+//    for (int h = 0; h < nirrep_; h++) {
+//        int nocc = nalphapi_[h];
+//                fprintf(outfile,"  nocc(%d) = %d\n",h,nocc);
+//        if (nocc == 0) continue;
+//        for (int p = 0; p < nocc; ++p){
+//            fprintf(outfile,"  epsilon(%d) = %f\n",p,state_epsilon_a[0]->get(h,p));
+//            if(state_epsilon_a[0]->get(h,p) > homo_e){
+//               homo_h = h;
+//               homo_p = p;
+//               homo_e = state_epsilon_a[0]->get(h,p);
+//            }
+//        }
+//    }
+//    fprintf(outfile,"  The HOMO orbital has energy %.9f and is %d of irrep %d",homo_e,homo_p,homo_h);
+//    SharedMatrix C_gs_a = state_Ca[0];
+//    int nocc = doccpi_[homo_h] + soccpi_[homo_h];
+//    for (int mu = 0; mu < nsopi_[homo_h]; ++mu) {
+//        for (int nu = 0; nu < nsopi_[homo_h]; ++nu) {
+//            double w = C_gs_a->get(homo_h,mu,homo_p) * C_gs_a->get(homo_h,nu,homo_p);
+//            W_a_homo->set(homo_h,mu,nu,w);
+//        }
+//    }
+//    W_homo.push_back(W_a_homo);
 }
 
 void UCKS::form_F()
@@ -223,6 +241,10 @@ void UCKS::form_F()
     }
     Fa_->copy(H_);
     Fa_->add(Ga_);
+    if(Pa){
+        fprintf(outfile,"  Adding the penalty matrix\n");
+        Fa_->add(Pa);
+    }
 
     H_->copy(H_copy);
     for (int c = 0; c < nconstraints; ++c){
@@ -234,6 +256,7 @@ void UCKS::form_F()
     Fb_->add(Gb_);
 
     gradient_of_W();
+
     if (debug_) {
         Fa_->print(outfile);
         Fb_->print(outfile);
@@ -295,29 +318,9 @@ void UCKS::gradient_of_W()
     }
     if(nconstraints > 0){
         for (int c = 0; c < nconstraints; ++c){
-            fprintf(outfile,"  %-10s: grad =  %10.7f",constraints[c]->type().c_str(),
+            fprintf(outfile,"   %-10s: grad = %10.7f    grad (resp) = %10.7f    Vc = %10.7f\n",constraints[c]->type().c_str(),
                     gradW->get(c),gradW_mo_resp->get(c),Vc->get(c));
         }
-        fprintf(outfile,"  Constraint         ");
-        for (int c = 0; c < nconstraints; ++c){
-            fprintf(outfile,"  %-10s",constraints[c]->type().c_str());
-        }
-        fprintf(outfile,"\n");
-        fprintf(outfile,"  grad(W)            ");
-        for (int c = 0; c < nconstraints; ++c){
-            fprintf(outfile," %10.7f",gradW->get(c));
-        }
-        fprintf(outfile,"\n");
-        fprintf(outfile,"  grad(W) (response) ");
-        for (int c = 0; c < nconstraints; ++c){
-            fprintf(outfile," %10.7f",gradW_mo_resp->get(c));
-        }
-        fprintf(outfile,"\n");
-        fprintf(outfile,"  Vc                 ");
-        for (int c = 0; c < nconstraints; ++c){
-            fprintf(outfile," %10.7f",Vc->get(c));
-        }
-        fprintf(outfile,"\n");
     }
     if(do_excitation){
         compute_overlap(0);
@@ -534,27 +537,23 @@ bool UCKS::test_convergency()
 /// Compute the overlap of the ground state to the current state
 double UCKS::compute_overlap(int n)
 {
-    Temp->gemm(false,false,1.0,S_,state_Ca[n],0.0);
-    Temp2->gemm(true,false,1.0,Ca_,Temp,0.0);
-//    Temp->gemm(true,false,1.0,Ca_,S_,0.0);
-//    Temp2->gemm(false,false,1.0,Temp,state_Ca[n],0.0);
+    Temp->gemm(false,false,1.0,S_,Ca_,0.0);
+    Ua->gemm(true,false,1.0,state_Ca[n],Temp,0.0);
     SharedMatrix S_aa = SharedMatrix(new Matrix("S_aa",nalpha_,nalpha_));
-    S_aa->zero();
-    // Grab S_aa from Temp2
+    // Grab S_aa from Ua
     double** S_aa_h = S_aa->pointer(0);
     int offset = 0;
     for (int h = 0; h < nirrep_; h++) {
         int nocc = doccpi_[h] + soccpi_[h];
         if (nocc == 0) continue;
-        double** Temp2_h = Temp2->pointer(h);
+        double** Ua_h = Ua->pointer(h);
         for (int i = 0; i < nocc; ++i){
             for (int j = 0; j < nocc; ++j){
-                S_aa_h[i + offset][j + offset] = Temp2_h[i][j];
+                S_aa_h[i + offset][j + offset] = Ua_h[i][j];
             }
         }
         offset += nocc;
     }
-    S_aa->print();
     SharedMatrix U_aa = SharedMatrix(new Matrix("U_aa",nalpha_,nalpha_));
     SharedVector L_aa = SharedVector(new Vector("L_aa",nalpha_));
     S_aa->diagonalize(U_aa,L_aa);
@@ -563,26 +562,52 @@ double UCKS::compute_overlap(int n)
         detS_aa *= L_aa->get(na);
     }
 
+    SharedMatrix M_aa = SharedMatrix(new Matrix("M_aa",nalpha_,nalpha_));
+    M_aa->gemm(false,true,1.0,S_aa,S_aa,0.0);
+    M_aa->diagonalize(U_aa,L_aa);
 
-    Temp->gemm(false,false,1.0,S_,state_Cb[n],0.0);
-    Temp2->gemm(true,false,1.0,Cb_,Temp,0.0);
+    L_aa->print();
+    int idx = 0;
+    for (int h = 0; h < nirrep_; h++) {
+        int nocc = nalphapi_[h];
+        int nmo  = nmopi_[h];
+        for (int i = 0; i < nocc; ++i){
+            OptHoles[0]->set(h,i,U_aa->get(idx,0));
+            ++idx;
+        }
+    }
+    OptHoles[0]->print();
+
+    Temp->gemm(false,false,1.0,S_,state_Ca[n],0.0);
+    SharedVector SCo = SharedVector(new Vector("SCo",nirrep_,nsopi_));
+    SCo->gemv(false,1.0,Temp.get(),OptHoles[0].get(),0.0);
+    for (int h = 0; h < nirrep_; h++) {
+        int nso = nsopi_[h];
+        for (int mu = 0; mu < nso; ++mu){
+            for (int nu = 0; nu < nso; ++nu){
+                Pa->set(h,mu,nu, 100.0 * SCo->get(h,mu) * SCo->get(h,nu));
+            }
+        }
+    }
+
+    Temp->gemm(false,false,1.0,S_,Cb_,0.0);
+    Ub->gemm(true,false,1.0,state_Cb[n],Temp,0.0);
     SharedMatrix S_bb = SharedMatrix(new Matrix("S_bb",nbeta_,nbeta_));
 
-    // Grab S_bb from Temp2
+    // Grab S_bb from Ub
     double** S_bb_h = S_bb->pointer(0);
     offset = 0;
     for (int h = 0; h < nirrep_; h++) {
         int nocc = doccpi_[h];
         if (nocc == 0) continue;
-        double** Temp2_h = Temp2->pointer(h);
+        double** Ub_h = Ub->pointer(h);
         for (int i = 0; i < nocc; ++i){
             for (int j = 0; j < nocc; ++j){
-                S_bb_h[i + offset][j + offset] = Temp2_h[i][j];
+                S_bb_h[i + offset][j + offset] = Ub_h[i][j];
             }
         }
         offset += nocc;
     }
-    S_bb->print();
     SharedMatrix U_bb = SharedMatrix(new Matrix("U_bb",nbeta_,nbeta_));
     SharedVector L_bb = SharedVector(new Vector("L_bb",nbeta_));
     S_bb->diagonalize(U_bb,L_bb);
@@ -590,72 +615,51 @@ double UCKS::compute_overlap(int n)
     for(int nb = 0; nb < nbeta_; ++nb){
         detS_bb *= L_bb->get(nb);
     }
-    fprintf(outfile,"  det(S_aa) = %.6f det(S_bb) = %.6f  <Phi|Phi'> = %.6f\n",detS_aa,detS_bb,detS_aa * detS_bb);
+    fprintf(outfile,"   det(S_aa) = %.6f det(S_bb) = %.6f  <Phi|Phi'> = %.6f\n",detS_aa,detS_bb,detS_aa * detS_bb);
     return (detS_aa * detS_bb);
 }
 
-//void UCKS::Lowdin2()
-//{
-//    fprintf(outfile, "  ==> Lowdin Charges <==\n\n");
-//    for (int f = 0; f < nfrag; ++f){
-//        double Q_f = -2.0 * D_->vector_dot(W_so[f]);
-//        Q_f += frag_nuclear_charge[f];
-//        fprintf(outfile, "  Fragment %d: charge = %.6f\n",f,Q_f);
-//    }
-//}
-
-//void UCKS::Lowdin()
-//{
-//    //    Compute the overlap matrix
-//    boost::shared_ptr<BasisSet> basisset_ = basisset();
-//    boost::shared_ptr<OneBodyAOInt> overlap(integral_->ao_overlap());
-//    SharedMatrix S_ao(new Matrix("S_ao",basisset_->nbf(),basisset_->nbf()));
-//    SharedMatrix D_ao(new Matrix("D_ao",basisset_->nbf(),basisset_->nbf()));
-//    SharedMatrix L_ao(new Matrix("L_ao",basisset_->nbf(),basisset_->nbf()));
-//    overlap->compute(S_ao);
-
-//    //    Form the S^(1/2) matrix
-//    S_ao->power(1.0/2.0);
-
-//    boost::shared_ptr<PetiteList> pet(new PetiteList(basisset_, integral_));
-//    SharedMatrix SO2AO_ = pet->sotoao();
-//    D_ao->remove_symmetry(D_,SO2AO_);
-//    L_ao->transform(D_ao,S_ao);
-//    L_ao->print();
-
-//    boost::shared_ptr<Molecule> mol = basisset_->molecule();
-//    SharedVector Qa(new Vector(mol->natom()));
-//    double* Qa_pointer = Qa->pointer();
-
-
-//    for (int a = 0; a < mol->natom(); ++a){
-//        Qa->set(a,mol->Z(a));
-//    }
-
-//    for (int mu = 0; mu < basisset_->nbf(); mu++) {
-//        double charge = L_ao->get(0,mu,mu);
-//        int shell = basisset_->function_to_shell(mu);
-//        int A = basisset_->shell_to_center(shell);
-
-//        Qa_pointer[A] -= 2.0 * charge;
-//      }
-//    Qa->print();
-
-//    int nfrag = mol->nfragments();
-//    fprintf(outfile, "\n  There are %d fragments in this molecule\n", nfrag);
-//    int a = 0;
-//    for (int f = 0; f < nfrag; ++f){
-//        std::vector<int> flist;
-//        std::vector<int> glist;
-//        flist.push_back(f);
-//        boost::shared_ptr<Molecule> frag = mol->extract_subsets(flist,glist);
-//        double fcharge = 0.0;
-//        for (int n = 0; n < frag->natom(); ++n){
-//            fcharge += Qa_pointer[a];
-//            ++a;
-//          }
-//        fprintf(outfile,"  Fragment %d, charge = %.8f, constrained charge = %.8f:\n",f,fcharge,double(frag->molecular_charge()));
-//    }
-//}
-
 }} // Namespaces
+
+
+
+//        state_Da.push_back(gs_scf->Da_->clone());
+//        state_Db.push_back(gs_scf->Db_->clone());
+//        // Build the projection operator onto the density
+//        build_W_exc();
+//        // Check the option ALPHA_EXCITATION, if it is defined use it to define the constrained excitation, "-" skips the constraint
+//        for (int f = 0; f < int(options["ALPHA_EXCITATION"].size()); ++f){
+//            if(options["ALPHA_EXCITATION"][f].to_string() != "-"){
+//                double constrained_excitation = options["ALPHA_EXCITATION"][f].to_double();
+//                double Nc = nalpha_ - constrained_excitation;
+//                SharedConstraint constraint(new Constraint(W_a_exc[0],Nc,1.0,0.0,"a_exc(" + to_string(f) + ")"));
+//                constraints.push_back(constraint);
+//                fprintf(outfile,"  Fragment %d: constrained alpha excitation   = %f .\n",f,constrained_excitation);
+//            }else{
+//                fprintf(outfile,"  Fragment %d: no alpha excitation constraint specified .\n",f);
+//            }
+//        }
+//        // Check the option BETA_EXCITATION, if it is defined use it to define the constrained excitation, "-" skips the constraint
+//        for (int f = 0; f < int(options["BETA_EXCITATION"].size()); ++f){
+//            if(options["BETA_EXCITATION"][f].to_string() != "-"){
+//                double constrained_excitation = options["BETA_EXCITATION"][f].to_double();
+//                double Nc = nbeta_ - constrained_excitation;
+//                SharedConstraint constraint(new Constraint(W_b_exc[0],Nc,0.0,1.0,"b_exc(" + to_string(f) + ")"));
+//                constraints.push_back(constraint);
+//                fprintf(outfile,"  Fragment %d: constrained beta excitation   = %f .\n",f,constrained_excitation);
+//            }else{
+//                fprintf(outfile,"  Fragment %d: no beta excitation constraint specified .\n",f);
+//            }
+//        }
+//        // Check the option HOMO_EXCITATION, if it is defined use it to define the constrained excitation, "-" skips the constraint
+//        for (int f = 0; f < int(options["HOMO_EXCITATION"].size()); ++f){
+//            if(options["HOMO_EXCITATION"][f].to_string() != "-"){
+//                double constrained_excitation = options["HOMO_EXCITATION"][f].to_double();
+//                double Nc = 0.0;
+//                SharedConstraint constraint(new Constraint(W_homo[f],Nc,1.0,0.0,"homo(" + to_string(f) + ")"));
+//                constraints.push_back(constraint);
+//                fprintf(outfile,"  Fragment %d: constrained homo excitation   = %f .\n",f,constrained_excitation);
+//            }else{
+//                fprintf(outfile,"  Fragment %d: no homo excitation constraint specified .\n",f);
+//            }
+//        }

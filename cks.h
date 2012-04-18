@@ -83,6 +83,10 @@ protected:
      std::vector<SharedMatrix> W_a_exc;
      /// The beta excitation constraint matrices in the SO basis
      std::vector<SharedMatrix> W_b_exc;
+//     /// The fragment HOMO constraint matrices in the SO basis
+//     std::vector<SharedMatrix> W_homo;
+     /// The alpha eigenvalues for each electronic state
+     std::vector<SharedVector> state_epsilon_a;
      /// The alpha MO coefficients for each electronic state
      std::vector<SharedMatrix> state_Ca;
      /// The beta MO coefficients for each electronic state
@@ -91,6 +95,14 @@ protected:
      std::vector<SharedMatrix> state_Da;
      /// The beta density matrix for each electronic state
      std::vector<SharedMatrix> state_Db;
+     /// The alpha unitary transformation <phi'|phi>
+     SharedMatrix Ua;
+     /// The beta unitary transformation <phi'|phi>
+     SharedMatrix Ub;
+     /// The alpha penalty function
+     SharedMatrix Pa;
+     /// The optimized holes
+     std::vector<SharedVector> OptHoles;
      /// The constraint objects
      std::vector<SharedConstraint> constraints;
      /// A temporary matrix

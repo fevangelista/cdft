@@ -23,6 +23,8 @@ int read_options(std::string name, Options& options)
         options.add("ALPHA_EXCITATION", new ArrayType());
         /*- Excitation constraints -*/
         options.add("BETA_EXCITATION", new ArrayType());
+        /*- Excitation constraints on the HOMO orbital -*/
+        options.add("HOMO_EXCITATION", new ArrayType());
         /*- Select the way the charges are computed -*/
         options.add_str("CONSTRAINT_TYPE","LOWDIN", "LOWDIN");
         /*- Select the way the charges are computed -*/
@@ -60,7 +62,7 @@ PsiReturnType cks(Options& options)
       Process::environment.set_reference_wavefunction(scf);
       energy = scf->compute_energy();
       // Additionally if excitation was specified, run an excited state computation
-      if(options["ALPHA_EXCITATION"].size() != 0 or options["BETA_EXCITATION"].size() != 0){
+      if(options["ALPHA_EXCITATION"].size() != 0 or options["BETA_EXCITATION"].size() != 0 or options["HOMO_EXCITATION"].size() != 0){
         boost::shared_ptr<UCKS> scf_ex = boost::shared_ptr<UCKS>(new UCKS(options,psio,scf));
         energy = scf_ex->compute_energy();
       }
