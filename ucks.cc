@@ -81,11 +81,14 @@ void UCKS::init(Options &options, boost::shared_ptr<UCKS> gs_scf)
     Ub = SharedMatrix(factory_->create_matrix("U beta"));
 
     if(do_excitation){
+        PoFaPo_ = SharedMatrix(factory_->create_matrix("PoFaPo"));
+        PvFaPv_ = SharedMatrix(factory_->create_matrix("PvFaPv"));
         // Save the ground state MOs and density matrix
         state_epsilon_a.push_back(SharedVector(gs_scf->epsilon_a_->clone()));
         state_Ca.push_back(gs_scf->Ca_->clone());
         state_Cb.push_back(gs_scf->Cb_->clone());
-
+        state_Da.push_back(gs_scf->Da_->clone());
+        state_Db.push_back(gs_scf->Db_->clone());
         // Find the HOMO
         int homo_h = 0;
         int homo_p = 0;
@@ -106,7 +109,6 @@ void UCKS::init(Options &options, boost::shared_ptr<UCKS> gs_scf)
         fprintf(outfile,"  The HOMO orbital has energy %.9f and is %d of irrep %d",homo_e,homo_p,homo_h);
         OptHoles[0]->zero();
         OptHoles[0]->set(homo_h,homo_p,1.0);
-        OptHoles[0]->print();
         Pa = SharedMatrix(factory_->create_matrix("U alpha"));
     }
 
@@ -128,6 +130,18 @@ void UCKS::init(Options &options, boost::shared_ptr<UCKS> gs_scf)
 UCKS::~UCKS()
 {
 }
+
+//void UCKS::guess()
+//{
+//    if(do_excitation){
+//        form_initial_C();
+//        find_occupation();
+//        form_D();
+//        E_ = compute_initial_E();
+//    }else{
+//        HF::guess();
+//    }
+//}
 
 void UCKS::build_W_frag()
 {
@@ -224,6 +238,7 @@ void UCKS::build_W_exc()
 //    W_homo.push_back(W_a_homo);
 }
 
+
 void UCKS::form_F()
 {
     // On the first iteration save H_
@@ -241,10 +256,6 @@ void UCKS::form_F()
     }
     Fa_->copy(H_);
     Fa_->add(Ga_);
-    if(Pa){
-        fprintf(outfile,"  Adding the penalty matrix\n");
-        Fa_->add(Pa);
-    }
 
     H_->copy(H_copy);
     for (int c = 0; c < nconstraints; ++c){
@@ -255,11 +266,99 @@ void UCKS::form_F()
     Fb_->copy(H_);
     Fb_->add(Gb_);
 
+    if(do_excitation){
+        // Form the projected Fock matrices
+        // Temp = DS
+        fprintf(outfile,"  OLD D\n");
+        state_Da[0]->print();
+        Temp->gemm(false,false,1.0,state_Da[0],S_,0.0);
+        PoFaPo_->transform(Fa_,Temp);
+        // Temp = 1 - DS
+        Temp2->identity();
+        Temp2->subtract(Temp);
+        PvFaPv_->transform(Fa_,Temp2);
+    }
+
     gradient_of_W();
 
     if (debug_) {
         Fa_->print(outfile);
         Fb_->print(outfile);
+    }
+}
+
+void UCKS::form_C()
+{
+    if(do_excitation and (PoFaPo_->rms() > 0.0)){
+        SharedVector epsilon_ao_ = SharedVector(factory_->create_vector());
+        SharedVector epsilon_av_ = SharedVector(factory_->create_vector());
+        diagonalize_F(PoFaPo_, Temp,  epsilon_ao_);
+        diagonalize_F(PvFaPv_, Temp2, epsilon_av_);
+        epsilon_ao_->print();
+        epsilon_av_->print();
+        int homo_h = 0;
+        int homo_p = 0;
+        double homo_energy = -1.0e10;
+        int lumo_h = 0;
+        int lumo_p = 0;
+        double lumo_energy = +1.0e10;
+        for (int h = 0; h < nirrep_; ++h){
+            int nmo  = nmopi_[h];
+            int nso  = nsopi_[h];
+            if (nmo == 0 or nso == 0) continue;
+            double** Ca_h  = Ca_->pointer(h);
+            double** Cao_h = Temp->pointer(h);
+            double** Cav_h = Temp2->pointer(h);
+            int no = 0;
+            for (int p = 0; p < nmo; ++p){
+                if(std::fabs(epsilon_ao_->get(h,p)) > 1.0e-6 ){
+                    for (int mu = 0; mu < nmo; ++mu){
+                        Ca_h[mu][no] = Cao_h[mu][p];
+                    }
+                    epsilon_a_->set(h,no,epsilon_ao_->get(h,p));
+                    if (epsilon_ao_->get(h,p) > homo_energy){
+                        homo_energy = epsilon_ao_->get(h,p);
+                        homo_h = h;
+                        homo_p = no;
+                    }
+                    no++;
+                }
+            }
+            for (int p = 0; p < nmo; ++p){
+                if(std::fabs(epsilon_av_->get(h,p)) > 1.0e-6 ){
+                    for (int mu = 0; mu < nmo; ++mu){
+                        Ca_h[mu][no] = Cav_h[mu][p];
+                    }
+                    epsilon_a_->set(h,no,epsilon_av_->get(h,p));
+                    if (epsilon_av_->get(h,p) < lumo_energy){
+                        lumo_energy = epsilon_av_->get(h,p);
+                        lumo_h = h;
+                        lumo_p = no;
+                    }
+                    no++;
+                }
+            }
+        }
+        // Shift the HOMO orbital in the occupied space
+        fprintf(outfile,"  homo_h = %d, homo_p = %d, homo_energy = %f\n",homo_h,homo_p,homo_energy);
+        fprintf(outfile,"  lumo_h = %d, lumo_p = %d, lumo_energy = %f\n",lumo_h,lumo_p,lumo_energy);
+        if(homo_h == lumo_h){
+            Ca_->swap_columns(homo_h,homo_p,lumo_p);
+            epsilon_a_->set(homo_h,homo_p,lumo_energy);
+            epsilon_a_->set(lumo_h,lumo_p,homo_energy);
+        }
+        epsilon_a_->print();
+        diagonalize_F(Fb_, Cb_, epsilon_b_);
+    }else{
+        diagonalize_F(Fa_, Ca_, epsilon_a_);
+        diagonalize_F(Fb_, Cb_, epsilon_b_);
+    }
+
+    find_occupation();
+
+    if (debug_) {
+        Ca_->print(outfile);
+        Cb_->print(outfile);
     }
 }
 
@@ -321,9 +420,6 @@ void UCKS::gradient_of_W()
             fprintf(outfile,"   %-10s: grad = %10.7f    grad (resp) = %10.7f    Vc = %10.7f\n",constraints[c]->type().c_str(),
                     gradW->get(c),gradW_mo_resp->get(c),Vc->get(c));
         }
-    }
-    if(do_excitation){
-        compute_overlap(0);
     }
 }
 
@@ -511,7 +607,6 @@ double UCKS::compute_E()
         fprintf(outfile, "    XC Functional Energy =     %24.14f\n", XC_E);
         fprintf(outfile, "    -D Energy =                %24.14f\n", dashD_E);
     }
-
     return Etotal;
 }
 
@@ -528,7 +623,12 @@ bool UCKS::test_convergency()
 
     if(optimize_Vc){
         constraint_optimization();
-        return (fabs(ediff) < energy_threshold_ and Drms_ < density_threshold_ and gradW->norm() < gradW_threshold_);
+        if(fabs(ediff) < energy_threshold_ and Drms_ < density_threshold_ and gradW->norm() < gradW_threshold_){
+            if(do_excitation) OptHoles[0]->print();
+            return true;
+        }else{
+            return false;
+        }
     }else{
         return (fabs(ediff) < energy_threshold_ and Drms_ < density_threshold_);
     }
@@ -540,6 +640,8 @@ double UCKS::compute_overlap(int n)
     Temp->gemm(false,false,1.0,S_,Ca_,0.0);
     Ua->gemm(true,false,1.0,state_Ca[n],Temp,0.0);
     SharedMatrix S_aa = SharedMatrix(new Matrix("S_aa",nalpha_,nalpha_));
+    SharedVector epsilon_aa = SharedVector(new Vector("epsilon_aa",nalpha_));
+    SharedVector guess_energy_aa = SharedVector(new Vector("epsilon_aa",nalpha_));
     // Grab S_aa from Ua
     double** S_aa_h = S_aa->pointer(0);
     int offset = 0;
@@ -548,6 +650,7 @@ double UCKS::compute_overlap(int n)
         if (nocc == 0) continue;
         double** Ua_h = Ua->pointer(h);
         for (int i = 0; i < nocc; ++i){
+            epsilon_aa->set(offset + i,state_epsilon_a[0]->get(h,i));
             for (int j = 0; j < nocc; ++j){
                 S_aa_h[i + offset][j + offset] = Ua_h[i][j];
             }
@@ -562,21 +665,71 @@ double UCKS::compute_overlap(int n)
         detS_aa *= L_aa->get(na);
     }
 
-    SharedMatrix M_aa = SharedMatrix(new Matrix("M_aa",nalpha_,nalpha_));
-    M_aa->gemm(false,true,1.0,S_aa,S_aa,0.0);
-    M_aa->diagonalize(U_aa,L_aa);
+    SharedMatrix UFU = SharedMatrix(factory_->create_matrix("UFU alpha"));
 
-    L_aa->print();
+    H_->copy(H_copy);
+    for (int c = 0; c < nconstraints; ++c){
+        Temp->copy(constraints[c]->W_so());
+        Temp->scale(Vc->get(c) * constraints[c]->weight_alpha());
+        H_->add(Temp);
+    }
+    Temp->copy(H_);
+    Temp->add(Ga_);
+    Temp2->transform(Temp,state_Ca[n]);
+//    Temp2->print();
+//    Temp->gemm(false,true,1.0,Temp2,Ua,0.0);
+//    UFU->gemm(false,false,1.0,Ua,Temp,0.0);
+//    UFU->trasform(Fa_,Ua);
+//    UFU->print();
+    // Grab the occupied part of UFU
+    SharedMatrix UFU_oo = SharedMatrix(new Matrix("UFU_oo",nalpha_,nalpha_));
+    double** UFU_oo_h = UFU_oo->pointer(0);
+    offset = 0;
+    for (int h = 0; h < nirrep_; h++) {
+        int nocc = doccpi_[h] + soccpi_[h];
+        if (nocc == 0) continue;
+        double** UFU_h = Temp2->pointer(h);
+        for (int i = 0; i < nocc; ++i){
+            for (int j = 0; j < nocc; ++j){
+                UFU_oo_h[i + offset][j + offset] = UFU_h[i][j];
+            }
+        }
+        offset += nocc;
+    }
+
+//    SharedMatrix M_aa = SharedMatrix(new Matrix("M_aa",nalpha_,nalpha_));
+//    M_aa->gemm(false,true,1.0,S_aa,S_aa,0.0);
+//    M_aa->diagonalize(U_aa,L_aa);
+    UFU_oo->diagonalize(U_aa,L_aa);
+
+//    U_aa->print();
+//    L_aa->print();
+//    epsilon_aa->print();
+    int max_solution = nalpha_ - 1;
+//    double max_energy = -1.0e5;
+
+//    for (int i = 0; i < nalpha_; ++i){
+//        double guess_energy = 0.0;
+//        for (int j = 0; j < nalpha_; ++j){
+//            guess_energy += epsilon_aa->get(j) * std::pow(U_aa->get(0,j,i),2.0);
+//        }
+//        if (guess_energy > max_energy){
+//            max_energy = guess_energy;
+//            max_solution = i;
+//        }
+//    }
+
+    fprintf(outfile,"  The solution with lowest excitation energy is %d",max_solution);
+
     int idx = 0;
     for (int h = 0; h < nirrep_; h++) {
         int nocc = nalphapi_[h];
         int nmo  = nmopi_[h];
         for (int i = 0; i < nocc; ++i){
-            OptHoles[0]->set(h,i,U_aa->get(idx,0));
+            OptHoles[0]->set(h,i,U_aa->get(idx,max_solution));
             ++idx;
         }
     }
-    OptHoles[0]->print();
 
     Temp->gemm(false,false,1.0,S_,state_Ca[n],0.0);
     SharedVector SCo = SharedVector(new Vector("SCo",nirrep_,nsopi_));
@@ -585,7 +738,7 @@ double UCKS::compute_overlap(int n)
         int nso = nsopi_[h];
         for (int mu = 0; mu < nso; ++mu){
             for (int nu = 0; nu < nso; ++nu){
-                Pa->set(h,mu,nu, 100.0 * SCo->get(h,mu) * SCo->get(h,nu));
+                Pa->set(h,mu,nu, 1000.0 * SCo->get(h,mu) * SCo->get(h,nu));
             }
         }
     }

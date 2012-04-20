@@ -95,6 +95,10 @@ protected:
      std::vector<SharedMatrix> state_Da;
      /// The beta density matrix for each electronic state
      std::vector<SharedMatrix> state_Db;
+     /// The alpha Fock matrix projected onto the occupied space
+     SharedMatrix PoFaPo_;
+     /// The alpha Fock matrix projected onto the virtual space
+     SharedMatrix PvFaPv_;
      /// The alpha unitary transformation <phi'|phi>
      SharedMatrix Ua;
      /// The beta unitary transformation <phi'|phi>
@@ -157,12 +161,16 @@ protected:
      double compute_overlap(int n);
 
      // Overloaded UKS function
-     /// Form the Fock matrix augmented with the constraints
+     /// Form the Fock matrix augmented with the constraints and/or projected
      virtual void form_F();
+     /// Diagonalize the Fock matrix to get the MO coefficients
+     virtual void form_C();
      /// Compute the value of the Lagrangian, at convergence it yields the energy
      virtual double compute_E();
      /// Test the convergence of the CKS procedure
      virtual bool test_convergency();
+//     /// Test the convergence of the CKS procedure
+//     virtual void guess();
      bool save_H_;
 };
 
