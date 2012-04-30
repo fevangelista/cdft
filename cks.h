@@ -93,10 +93,14 @@ protected:
      std::vector<SharedMatrix> state_Da;
      /// The beta density matrix for each electronic state
      std::vector<SharedMatrix> state_Db;
+     /// The ground state scf object
+     boost::shared_ptr<UCKS> gs_scf_;
      /// The alpha Fock matrix projected onto the occupied space
      SharedMatrix PoFaPo_;
      /// The alpha Fock matrix projected onto the virtual space
      SharedMatrix PvFaPv_;
+     /// The alpha penalty function
+     SharedMatrix Pa;
      /// The alpha unitary transformation <phi'|phi>
      SharedMatrix Ua;
      /// The beta unitary transformation <phi'|phi>
@@ -115,8 +119,10 @@ protected:
      SharedVector Vc_old;
      /// Optimize the Lagrange multiplier
      bool optimize_Vc;
-     /// Optimize the Lagrange multiplier
+     /// Compute an excited state as an optimal singly excited state
      bool do_excitation;
+     /// Compute an excited state by applying a penalty function
+     bool do_penalty;
      /// The number of constraints
      int nconstraints;
      /// The gradient of the constrained functional W
@@ -138,7 +144,7 @@ protected:
 
      int nW_opt;
      /// Class initializer
-     void init(Options &options, boost::shared_ptr<UCKS> gs_scf);
+     void init(Options &options);
      /// Build the fragment constrain matrices in the SO basis
      void build_W_frag();
      /// Build the excitation constraint matrices in the SO basis

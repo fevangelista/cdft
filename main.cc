@@ -36,6 +36,8 @@ int read_options(std::string name, Options& options)
         options.add("VC", new ArrayType());
         /*- The amount of information printed to the output file -*/
         options.add_int("PRINT", 1);
+        /*- Compute an excited state by adding a penalty to the HOMO -*/
+        options.add_bool("HOMO_PENALTY", false);
     }
     return true;
 }
@@ -60,7 +62,7 @@ PsiReturnType cks(Options& options)
       Process::environment.set_reference_wavefunction(scf);
       gs_energy = scf->compute_energy();
       // Additionally if excitation was specified, run an excited state computation
-      if(options["FRAG_EXCITATION"].size() != 0){
+      if(options["FRAG_EXCITATION"].size() != 0 or options.get_bool("HOMO_PENALTY")){
         boost::shared_ptr<UCKS> scf_ex = boost::shared_ptr<UCKS>(new UCKS(options,psio,scf));
         exc_energy = scf_ex->compute_energy();
         fprintf(outfile,"  Excitation Energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",

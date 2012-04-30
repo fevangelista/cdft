@@ -15,19 +15,18 @@ using namespace psi;
 namespace psi{ namespace scf{
 
 UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio)
-    : UKS(options, psio), optimize_Vc(false), gradW_threshold_(1.0e-9),nW_opt(0),do_excitation(false)
+    : UKS(options, psio), optimize_Vc(false), gradW_threshold_(1.0e-9),nW_opt(0)
 {
-    boost::shared_ptr<UCKS> gs_scf = boost::shared_ptr<UCKS>();
-    init(options,gs_scf);
+    init(options);
 }
 
 UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<UCKS> gs_scf)
-    : UKS(options, psio), optimize_Vc(false), gradW_threshold_(1.0e-9),nW_opt(0),do_excitation(true)
+    : UKS(options, psio), optimize_Vc(false), gradW_threshold_(1.0e-9),nW_opt(0), gs_scf_(gs_scf)
 {
-    init(options,gs_scf);
+    init(options);
 }
 
-void UCKS::init(Options &options, boost::shared_ptr<UCKS> gs_scf)
+void UCKS::init(Options &options)
 {
     fprintf(outfile,"\n  ==> Constrained DFT (UCKS) <==\n\n");
 
@@ -36,6 +35,10 @@ void UCKS::init(Options &options, boost::shared_ptr<UCKS> gs_scf)
     fprintf(outfile,"  gradW threshold = :%9.2e\n",gradW_threshold_);
     nfrag = basisset()->molecule()->nfragments();
     fprintf(outfile,"  Number of fragments: %d\n",nfrag);
+
+    do_excitation = (options["FRAG_EXCITATION"].size() > 0);
+    do_penalty = options.get_bool("HOMO_PENALTY");
+
 
     build_W_frag();
 
@@ -78,19 +81,49 @@ void UCKS::init(Options &options, boost::shared_ptr<UCKS> gs_scf)
     Ua = SharedMatrix(factory_->create_matrix("U alpha"));
     Ub = SharedMatrix(factory_->create_matrix("U beta"));
 
-    if(do_excitation){
+    if(gs_scf_){
+        if(do_excitation)
+            fprintf(outfile,"  Saving the ground orbitals for an excited state computation\n");
+        if(do_penalty)
+            fprintf(outfile,"  Saving the ground orbitals for a homo projection computation\n");
+
         PoFaPo_ = SharedMatrix(factory_->create_matrix("PoFaPo"));
         PvFaPv_ = SharedMatrix(factory_->create_matrix("PvFaPv"));
         // Save the ground state MOs and density matrix
-        state_epsilon_a.push_back(SharedVector(gs_scf->epsilon_a_->clone()));
-        state_Ca.push_back(gs_scf->Ca_->clone());
-        state_Cb.push_back(gs_scf->Cb_->clone());
-        state_Da.push_back(gs_scf->Da_->clone());
-        state_Db.push_back(gs_scf->Db_->clone());
-        state_nalphapi.push_back(gs_scf->nalphapi_);
-        state_nbetapi.push_back(gs_scf->nbetapi_);
-        Fa_->copy(gs_scf->Fa_);
-        Fb_->copy(gs_scf->Fb_);
+        state_epsilon_a.push_back(SharedVector(gs_scf_->epsilon_a_->clone()));
+        state_Ca.push_back(gs_scf_->Ca_->clone());
+        state_Cb.push_back(gs_scf_->Cb_->clone());
+        state_Da.push_back(gs_scf_->Da_->clone());
+        state_Db.push_back(gs_scf_->Db_->clone());
+        state_nalphapi.push_back(gs_scf_->nalphapi_);
+        state_nbetapi.push_back(gs_scf_->nbetapi_);
+        Fa_->copy(gs_scf_->Fa_);
+        Fb_->copy(gs_scf_->Fb_);
+
+        if(do_penalty){
+            // Find the alpha HOMO of the ground state wave function
+            int homo_h = 0;
+            int homo_p = 0;
+            double homo_e = -1.0e9;
+            for (int h = 0; h < nirrep_; ++h) {
+                int nocc = state_nalphapi[0][h] - 1;
+                if (nocc < 0) continue;
+                if(state_epsilon_a[0]->get(h,nocc) > homo_e){
+                    homo_h = h;
+                    homo_p = nocc;
+                    homo_e = state_epsilon_a[0]->get(h,nocc);
+                }
+            }
+            fprintf(outfile,"  The HOMO orbital has energy %.9f and is %d of irrep %d.\n",homo_e,homo_p,homo_h);
+            Pa = SharedMatrix(factory_->create_matrix("Penalty matrix alpha"));
+            for (int mu = 0; mu < nsopi_[homo_h]; ++mu){
+                for (int nu = 0; nu < nsopi_[homo_h]; ++nu){
+                    double P_mn = 1000.0 * state_Ca[0]->get(homo_h,mu,homo_p) * state_Ca[0]->get(homo_h,nu,homo_p);
+                    Pa->set(homo_h,mu,nu,P_mn);
+                }
+            }
+            Pa->transform(S_);
+        }
     }
 
     for (int f = 0; f < std::min(int(options["VC"].size()),nconstraints); ++f){
@@ -195,6 +228,9 @@ void UCKS::form_F()
     }
     Fa_->copy(H_);
     Fa_->add(Ga_);
+    if(Pa){
+        Fa_->add(Pa);
+    }
 
     H_->copy(H_copy);
     for (int c = 0; c < nconstraints; ++c){
@@ -205,7 +241,7 @@ void UCKS::form_F()
     Fb_->copy(H_);
     Fb_->add(Gb_);
 
-    if(do_excitation){
+    if(gs_scf_ and do_excitation){
         // Form the projected Fock matrices
         // Temp = DS
         Temp->gemm(false,false,1.0,state_Da[0],S_,0.0);
@@ -226,7 +262,7 @@ void UCKS::form_F()
 
 void UCKS::form_C()
 {
-    if(do_excitation and (PoFaPo_->rms() > 0.0)){
+    if(gs_scf_ and (PoFaPo_->rms() > 0.0)){
         SharedVector epsilon_ao_ = SharedVector(factory_->create_vector());
         SharedVector epsilon_av_ = SharedVector(factory_->create_vector());
         diagonalize_F(PoFaPo_, Temp,  epsilon_ao_);
