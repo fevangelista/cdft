@@ -1,5 +1,6 @@
 #include <libplugin/plugin.h>
 #include <psi4-dec.h>
+#include <physconst.h>
 #include <libparallel/parallel.h>
 #include <liboptions/liboptions.h>
 #include <libmints/mints.h>
@@ -19,12 +20,8 @@ int read_options(std::string name, Options& options)
         options.add("CHARGE", new ArrayType());
         /*- Spin constraints -*/
         options.add("SPIN", new ArrayType());
-        /*- Excitation constraints -*/
-        options.add("ALPHA_EXCITATION", new ArrayType());
-        /*- Excitation constraints -*/
-        options.add("BETA_EXCITATION", new ArrayType());
         /*- Excitation constraints on the HOMO orbital -*/
-        options.add("HOMO_EXCITATION", new ArrayType());
+        options.add("FRAG_EXCITATION", new ArrayType());
         /*- Select the way the charges are computed -*/
         options.add_str("CONSTRAINT_TYPE","LOWDIN", "LOWDIN");
         /*- Select the way the charges are computed -*/
@@ -50,28 +47,28 @@ PsiReturnType cks(Options& options)
   boost::shared_ptr<PSIO> psio = PSIO::shared_object();
 
   std::string reference = options.get_str("REFERENCE");
-  double energy;
-
+  double gs_energy = 0.0;
+  double exc_energy = 0.0;
   // Run a ground state computation first
   if (reference == "RKS") {
-      boost::shared_ptr<RCKS> scf = boost::shared_ptr<RCKS>(new RCKS(options, psio));
-      Process::environment.set_reference_wavefunction(scf);
-      energy = scf->compute_energy();
+      throw InputException("Constrained RKS is not implemented ", "REFERENCE to UKS", __FILE__, __LINE__);
+//      boost::shared_ptr<RCKS> scf = boost::shared_ptr<RCKS>(new RCKS(options, psio));
+//      Process::environment.set_reference_wavefunction(scf);
+//      gs_energy = scf->compute_energy();
   }else if (reference == "UKS") {
       boost::shared_ptr<UCKS> scf = boost::shared_ptr<UCKS>(new UCKS(options, psio));
       Process::environment.set_reference_wavefunction(scf);
-      energy = scf->compute_energy();
+      gs_energy = scf->compute_energy();
       // Additionally if excitation was specified, run an excited state computation
-      if(options["ALPHA_EXCITATION"].size() != 0 or options["BETA_EXCITATION"].size() != 0 or options["HOMO_EXCITATION"].size() != 0){
+      if(options["FRAG_EXCITATION"].size() != 0){
         boost::shared_ptr<UCKS> scf_ex = boost::shared_ptr<UCKS>(new UCKS(options,psio,scf));
-        energy = scf_ex->compute_energy();
+        exc_energy = scf_ex->compute_energy();
+        fprintf(outfile,"  Excitation Energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+                exc_energy - gs_energy,(exc_energy - gs_energy) * _hartree2ev, (exc_energy - gs_energy) * _hartree2wavenumbers);
       }
   }else {
       throw InputException("Unknown reference " + reference, "REFERENCE", __FILE__, __LINE__);
-      energy = 0.0;
   }
-
-
 
   // Set this early because the callback mechanism uses it.
   Process::environment.reference_wavefunction().reset();
@@ -79,9 +76,9 @@ PsiReturnType cks(Options& options)
   Communicator::world->sync();
 
   // Set some environment variables
-  Process::environment.globals["SCF TOTAL ENERGY"] = energy;
-  Process::environment.globals["CURRENT ENERGY"] = energy;
-  Process::environment.globals["CURRENT REFERENCE ENERGY"] = energy;
+  Process::environment.globals["SCF TOTAL ENERGY"] = gs_energy;
+  Process::environment.globals["CURRENT ENERGY"] = gs_energy;
+  Process::environment.globals["CURRENT REFERENCE ENERGY"] = gs_energy;
 
   // Shut down psi.
 

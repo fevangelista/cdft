@@ -79,18 +79,16 @@ public:
 protected:
      /// The fragment constraint matrices in the SO basis
      std::vector<SharedMatrix> W_frag;
-     /// The alpha excitation constraint matrices in the SO basis
-     std::vector<SharedMatrix> W_a_exc;
-     /// The beta excitation constraint matrices in the SO basis
-     std::vector<SharedMatrix> W_b_exc;
-//     /// The fragment HOMO constraint matrices in the SO basis
-//     std::vector<SharedMatrix> W_homo;
      /// The alpha eigenvalues for each electronic state
      std::vector<SharedVector> state_epsilon_a;
      /// The alpha MO coefficients for each electronic state
      std::vector<SharedMatrix> state_Ca;
      /// The beta MO coefficients for each electronic state
      std::vector<SharedMatrix> state_Cb;
+     /// The alpha density matrix for each electronic state
+     std::vector<Dimension> state_nalphapi;
+     /// The beta MO coefficients for each electronic state
+     std::vector<Dimension> state_nbetapi;
      /// The alpha density matrix for each electronic state
      std::vector<SharedMatrix> state_Da;
      /// The beta density matrix for each electronic state
@@ -103,10 +101,6 @@ protected:
      SharedMatrix Ua;
      /// The beta unitary transformation <phi'|phi>
      SharedMatrix Ub;
-     /// The alpha penalty function
-     SharedMatrix Pa;
-     /// The optimized holes
-     std::vector<SharedVector> OptHoles;
      /// The constraint objects
      std::vector<SharedConstraint> constraints;
      /// A temporary matrix
@@ -148,8 +142,6 @@ protected:
      /// Build the fragment constrain matrices in the SO basis
      void build_W_frag();
      /// Build the excitation constraint matrices in the SO basis
-     void build_W_exc();
-     /// Compute the gradient of W with respect to the Lagrange multiplier
      void gradient_of_W();
      /// Compute the hessian of W with respect to the Lagrange multiplier
      void hessian_of_W();
@@ -169,8 +161,8 @@ protected:
      virtual double compute_E();
      /// Test the convergence of the CKS procedure
      virtual bool test_convergency();
-//     /// Test the convergence of the CKS procedure
-//     virtual void guess();
+     /// Guess the starting MO
+     virtual void guess();
      bool save_H_;
 };
 
