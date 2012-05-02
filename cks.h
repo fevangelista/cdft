@@ -99,6 +99,27 @@ protected:
      SharedMatrix PoFaPo_;
      /// The alpha Fock matrix projected onto the virtual space
      SharedMatrix PvFaPv_;
+     /// The eigenvectors of PoFaPo
+     SharedMatrix Uo;
+     /// The eigenvectors of PvFaPv
+     SharedMatrix Uv;
+     /// The eigenvalues of PoFaPo
+     SharedVector lambda_o;
+     /// The eigenvalues of PvFaPv
+     SharedVector lambda_v;
+     /// The beta Fock matrix projected onto the occupied space
+     SharedMatrix PoFbPo_;
+     /// The beta Fock matrix projected onto the virtual space
+     SharedMatrix PvFbPv_;
+     /// The eigenvectors of PoFbPo
+     SharedMatrix Uob;
+     /// The eigenvectors of PvFbPv
+     SharedMatrix Uvb;
+     /// The eigenvalues of PoFbPo
+     SharedVector lambda_ob;
+     /// The eigenvalues of PvFbPv
+     SharedVector lambda_vb;
+
      /// The alpha penalty function
      SharedMatrix Pa;
      /// The alpha unitary transformation <phi'|phi>
