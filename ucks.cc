@@ -173,6 +173,63 @@ void UCKS::guess()
     }
 }
 
+void UCKS::find_occupation()
+{
+    std::vector<std::pair<double, int> > pairs_a;
+    std::vector<std::pair<double, int> > pairs_b;
+    for (int h=0; h<epsilon_a_->nirrep(); ++h) {
+        for (int i=0; i<epsilon_a_->dimpi()[h]; ++i)
+            pairs_a.push_back(make_pair(epsilon_a_->get(h, i), h));
+    }
+    for (int h=0; h<epsilon_b_->nirrep(); ++h) {
+        for (int i=0; i<epsilon_b_->dimpi()[h]; ++i)
+            pairs_b.push_back(make_pair(epsilon_b_->get(h, i), h));
+    }
+    sort(pairs_a.begin(),pairs_a.end());
+    sort(pairs_b.begin(),pairs_b.end());
+
+    if(!input_docc_ && !input_socc_){
+        memset(nalphapi_, 0, sizeof(int) * epsilon_a_->nirrep());
+        for (int i=0; i<nalpha_; ++i)
+            nalphapi_[pairs_a[i].second]++;
+    }
+    if(!input_docc_ && !input_socc_){
+        memset(nbetapi_, 0, sizeof(int) * epsilon_b_->nirrep());
+        for (int i=0; i<nbeta_; ++i)
+            nbetapi_[pairs_b[i].second]++;
+    }
+
+    int old_socc[8];
+    int old_docc[8];
+    for(int h = 0; h < nirrep_; ++h){
+        old_socc[h] = soccpi_[h];
+        old_docc[h] = doccpi_[h];
+    }
+
+    for (int h = 0; h < nirrep_; ++h) {
+        soccpi_[h] = std::abs(nalphapi_[h] - nbetapi_[h]);
+        doccpi_[h] = std::min(nalphapi_[h] , nbetapi_[h]);
+    }
+
+    bool occ_changed = false;
+    for(int h = 0; h < nirrep_; ++h){
+        if( old_socc[h] != soccpi_[h] || old_docc[h] != doccpi_[h]){
+            occ_changed = true;
+            break;
+        }
+    }
+
+    // If print > 2 (diagnostics), print always
+    if((print_ > 2 || (print_ && occ_changed)) && iteration_ > 0){
+        if (Communicator::world->me() == 0)
+            fprintf(outfile, "\tOccupation by irrep:\n");
+        print_occupation();
+    }
+    // Start MOM if needed (called here because we need the nocc
+    // to be decided by Aufbau ordering prior to MOM_start)
+    MOM_start();
+}
+
 void UCKS::build_W_frag()
 {
     // Compute the overlap matrix
@@ -326,8 +383,7 @@ void UCKS::form_C()
         boost::tuple<double,int,int> homo = sorted_occ.back();
         boost::tuple<double,int,int> lumo = sorted_vir.front();
 
-        fprintf(outfile,"  homo_h = %d, homo_p = %d, homo_energy = %f\n",homo.get<1>(),homo.get<2>(),homo.get<0>());
-        fprintf(outfile,"  lumo_h = %d, lumo_p = %d, lumo_energy = %f\n",lumo.get<1>(),lumo.get<2>(),lumo.get<0>());
+        fprintf(outfile,"   homo (%d,%d,%.6f) -> lumo (%d,%d,%.6f)\n",homo.get<1>(),homo.get<2>(),homo.get<0>(),lumo.get<1>(),state_nalphapi[0][lumo.get<1>()] + lumo.get<2>(),lumo.get<0>());
         Temp->zero();
         for (int h = 0; h < nirrep_; ++h){
             int nocc = state_nalphapi[0][h];
