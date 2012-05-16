@@ -6,7 +6,7 @@
 #include <libmints/mints.h>
 #include <libpsio/psio.hpp>
 #include <libciomr/libciomr.h>
-#include "cks.h"
+#include "ucks.h"
 
 INIT_PLUGIN
 
@@ -20,8 +20,10 @@ int read_options(std::string name, Options& options)
         options.add("CHARGE", new ArrayType());
         /*- Spin constraints -*/
         options.add("SPIN", new ArrayType());
-        /*- Excitation constraints on the HOMO orbital -*/
-        options.add("FRAG_EXCITATION", new ArrayType());
+        /*- Number of excited states -*/
+        options.add_int("NROOTS", 0);
+        /*- Number of excited states per irrep, ROOTS_PER_IRREP has priority over NROOTS -*/
+        options.add("ROOTS_PER_IRREP", new ArrayType());
         /*- Select the way the charges are computed -*/
         options.add_str("CONSTRAINT_TYPE","LOWDIN", "LOWDIN");
         /*- Select the way the charges are computed -*/
@@ -45,47 +47,60 @@ int read_options(std::string name, Options& options)
 extern "C" 
 PsiReturnType cks(Options& options)
 {
-  tstart();
-  boost::shared_ptr<PSIO> psio = PSIO::shared_object();
+    tstart();
+    boost::shared_ptr<PSIO> psio = PSIO::shared_object();
 
-  std::string reference = options.get_str("REFERENCE");
-  double gs_energy = 0.0;
-  double exc_energy = 0.0;
-  // Run a ground state computation first
-  if (reference == "RKS") {
-      throw InputException("Constrained RKS is not implemented ", "REFERENCE to UKS", __FILE__, __LINE__);
-//      boost::shared_ptr<RCKS> scf = boost::shared_ptr<RCKS>(new RCKS(options, psio));
-//      Process::environment.set_reference_wavefunction(scf);
-//      gs_energy = scf->compute_energy();
-  }else if (reference == "UKS") {
-      boost::shared_ptr<UCKS> scf = boost::shared_ptr<UCKS>(new UCKS(options, psio));
-      Process::environment.set_reference_wavefunction(scf);
-      gs_energy = scf->compute_energy();
-      // Additionally if excitation was specified, run an excited state computation
-      if(options["FRAG_EXCITATION"].size() != 0 or options.get_bool("HOMO_PENALTY")){
-        boost::shared_ptr<UCKS> scf_ex = boost::shared_ptr<UCKS>(new UCKS(options,psio,scf));
-        exc_energy = scf_ex->compute_energy();
-        fprintf(outfile,"  Excitation Energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
-                exc_energy - gs_energy,(exc_energy - gs_energy) * _hartree2ev, (exc_energy - gs_energy) * _hartree2wavenumbers);
-      }
-  }else {
-      throw InputException("Unknown reference " + reference, "REFERENCE", __FILE__, __LINE__);
-  }
+    std::string reference = options.get_str("REFERENCE");
+    std::vector<double> energies;
+    if (reference == "RKS") {
+        throw InputException("Constrained RKS is not implemented ", "REFERENCE to UKS", __FILE__, __LINE__);
+    }else if (reference == "UKS") {
+        // Run a ground state computation first
+        boost::shared_ptr<UCKS> ref_scf = boost::shared_ptr<UCKS>(new UCKS(options, psio));
+        Process::environment.set_reference_wavefunction(ref_scf);
+        double gs_energy = ref_scf->compute_energy();
+        energies.push_back(gs_energy);
 
-  // Set this early because the callback mechanism uses it.
-  Process::environment.reference_wavefunction().reset();
+        // Count the number of excited state computations
+        int nexcited = 0;
+        if(options["ROOTS_PER_IRREP"].has_changed() and options["NROOTS"].has_changed()){
+            throw InputException("NROOTS and ROOTS_PER_IRREP are simultaneously defined", "Please specify either NROOTS or ROOTS_PER_IRREP", __FILE__, __LINE__);
+        }else{
+            nexcited = options["NROOTS"].to_integer();
+        }
+        int nholes = 0;
+        int nparticles = 0;
+        for(int state = 0; state < nexcited; ++state){
+            boost::shared_ptr<UCKS> new_scf = boost::shared_ptr<UCKS>(new UCKS(options,psio,ref_scf));
+            double new_energy = new_scf->compute_energy();
+            energies.push_back(new_energy);
+            ref_scf = new_scf;
+        }
+    }else {
+        throw InputException("Unknown reference " + reference, "REFERENCE", __FILE__, __LINE__);
+    }
 
-  Communicator::world->sync();
+    // Print the excitation energies
+    for(int state = 1; state < static_cast<int>(energies.size()); ++state){
+        double exc_energy = energies[state] - energies[0];
+        fprintf(outfile,"  Excited state %d : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+                state,exc_energy,exc_energy * _hartree2ev, exc_energy * _hartree2wavenumbers);
+    }
 
-  // Set some environment variables
-  Process::environment.globals["SCF TOTAL ENERGY"] = gs_energy;
-  Process::environment.globals["CURRENT ENERGY"] = gs_energy;
-  Process::environment.globals["CURRENT REFERENCE ENERGY"] = gs_energy;
+    // Set this early because the callback mechanism uses it.
+    Process::environment.reference_wavefunction().reset();
 
-  // Shut down psi.
+    Communicator::world->sync();
 
-  tstop();
-  return Success;
+    // Set some environment variables
+    Process::environment.globals["SCF TOTAL ENERGY"] = energies[0];
+    Process::environment.globals["CURRENT ENERGY"] = energies[0];
+    Process::environment.globals["CURRENT REFERENCE ENERGY"] = energies[0];
+
+    // Shut down psi.
+
+    tstop();
+    return Success;
 }
 
 

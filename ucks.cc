@@ -1,5 +1,5 @@
 
-#include <cks.h>
+#include <ucks.h>
 #include <libmints/view.h>
 #include <libmints/mints.h>
 #include <libfock/apps.h>
@@ -19,12 +19,18 @@ namespace psi{ namespace scf{
 UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio)
     : UKS(options, psio), optimize_Vc(false), gradW_threshold_(1.0e-9),nW_opt(0)
 {
+    do_excitation = false;
+    nexclude_occ = 0;
+    nexclude_vir = 0;
     init(options);
 }
 
-UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<UCKS> gs_scf)
-    : UKS(options, psio), optimize_Vc(false), gradW_threshold_(1.0e-9),nW_opt(0), gs_scf_(gs_scf)
+UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<UCKS> ref_scf)
+    : UKS(options, psio), optimize_Vc(false), gradW_threshold_(1.0e-9),nW_opt(0), ref_scf_(ref_scf)
 {
+    do_excitation = true;
+    nexclude_occ = ref_scf->nexclude_occ;
+    nexclude_vir = ref_scf->nexclude_vir;
     init(options);
 }
 
@@ -37,10 +43,6 @@ void UCKS::init(Options &options)
     fprintf(outfile,"  gradW threshold = :%9.2e\n",gradW_threshold_);
     nfrag = basisset()->molecule()->nfragments();
     fprintf(outfile,"  Number of fragments: %d\n",nfrag);
-
-    do_excitation = (options["FRAG_EXCITATION"].size() > 0);
-    do_penalty = options.get_bool("HOMO_PENALTY");
-
 
     build_W_frag();
 
@@ -83,63 +85,62 @@ void UCKS::init(Options &options)
     Ua = SharedMatrix(factory_->create_matrix("U alpha"));
     Ub = SharedMatrix(factory_->create_matrix("U beta"));
 
-    if(gs_scf_){
-        if(do_excitation)
-            fprintf(outfile,"  Saving the ground orbitals for an excited state computation\n");
-        if(do_penalty)
-            fprintf(outfile,"  Saving the ground orbitals for a homo projection computation\n");
+    if(do_excitation){
+        fprintf(outfile,"  Saving the reference orbitals for an excited state computation\n");
 
-        Dimension nocc_alphapi = gs_scf_->nalphapi_;
-        Dimension nvir_alphapi = gs_scf_->nmopi_ - nocc_alphapi;
+        Dimension nocc_alphapi = ref_scf_->nalphapi_;
+        Dimension nvir_alphapi = ref_scf_->nmopi_ - nocc_alphapi;
         PoFaPo_ = SharedMatrix(new Matrix("PoFaPo",nocc_alphapi,nocc_alphapi));
         PvFaPv_ = SharedMatrix(new Matrix("PvFaPv",nvir_alphapi,nvir_alphapi));
         Uo = SharedMatrix(new Matrix("PoFaPo",nocc_alphapi,nocc_alphapi));
         Uv = SharedMatrix(new Matrix("PvFaPv",nvir_alphapi,nvir_alphapi));
         lambda_o = SharedVector(new Vector("lambda_o",nocc_alphapi));
         lambda_v = SharedVector(new Vector("lambda_v",nvir_alphapi));
-        Dimension nocc_betapi = gs_scf_->nbetapi_;
-        Dimension nvir_betapi = gs_scf_->nmopi_ - nocc_betapi;
+        Dimension nocc_betapi = ref_scf_->nbetapi_;
+        Dimension nvir_betapi = ref_scf_->nmopi_ - nocc_betapi;
         PoFbPo_ = SharedMatrix(new Matrix("PoFbPo",nocc_betapi,nocc_betapi));
         PvFbPv_ = SharedMatrix(new Matrix("PvFbPv",nvir_betapi,nvir_betapi));
         Uob = SharedMatrix(new Matrix("Uob",nocc_betapi,nocc_betapi));
         Uvb = SharedMatrix(new Matrix("Uvb",nvir_betapi,nvir_betapi));
         lambda_ob = SharedVector(new Vector("lambda_o",nocc_betapi));
         lambda_vb = SharedVector(new Vector("lambda_v",nvir_betapi));
-        // Save the ground state MOs and density matrix
-        state_epsilon_a.push_back(SharedVector(gs_scf_->epsilon_a_->clone()));
-        state_Ca.push_back(gs_scf_->Ca_->clone());
-        state_Cb.push_back(gs_scf_->Cb_->clone());
-        state_Da.push_back(gs_scf_->Da_->clone());
-        state_Db.push_back(gs_scf_->Db_->clone());
-        state_nalphapi.push_back(gs_scf_->nalphapi_);
-        state_nbetapi.push_back(gs_scf_->nbetapi_);
-        Fa_->copy(gs_scf_->Fa_);
-        Fb_->copy(gs_scf_->Fb_);
+        // Save the reference state MOs and density matrix
+        state_epsilon_a.push_back(SharedVector(ref_scf_->epsilon_a_->clone()));
+        state_Ca.push_back(ref_scf_->Ca_->clone());
+        state_Cb.push_back(ref_scf_->Cb_->clone());
+        state_Da.push_back(ref_scf_->Da_->clone());
+        state_Db.push_back(ref_scf_->Db_->clone());
+        state_nalphapi.push_back(ref_scf_->nalphapi_);
+        state_nbetapi.push_back(ref_scf_->nbetapi_);
+        Fa_->copy(ref_scf_->Fa_);
+        Fb_->copy(ref_scf_->Fb_);
 
-        if(do_penalty){
-            // Find the alpha HOMO of the ground state wave function
-            int homo_h = 0;
-            int homo_p = 0;
-            double homo_e = -1.0e9;
-            for (int h = 0; h < nirrep_; ++h) {
-                int nocc = state_nalphapi[0][h] - 1;
-                if (nocc < 0) continue;
-                if(state_epsilon_a[0]->get(h,nocc) > homo_e){
-                    homo_h = h;
-                    homo_p = nocc;
-                    homo_e = state_epsilon_a[0]->get(h,nocc);
-                }
-            }
-            fprintf(outfile,"  The HOMO orbital has energy %.9f and is %d of irrep %d.\n",homo_e,homo_p,homo_h);
-            Pa = SharedMatrix(factory_->create_matrix("Penalty matrix alpha"));
-            for (int mu = 0; mu < nsopi_[homo_h]; ++mu){
-                for (int nu = 0; nu < nsopi_[homo_h]; ++nu){
-                    double P_mn = 1000000.0 * state_Ca[0]->get(homo_h,mu,homo_p) * state_Ca[0]->get(homo_h,nu,homo_p);
-                    Pa->set(homo_h,mu,nu,P_mn);
-                }
-            }
-            Pa->transform(S_);
-        }
+//        if(nexclude_occ == 0 and nexclude_vir){
+//            // Find the lowest single excitations
+//            std::vector<boost::tuple<double,int,int,int,int> > sorted_exc;
+//            // Loop over occupied MOs
+//            for (int hi = 0; hi < nirrep_; ++hi){
+//                int nocci = ref_scf_->nalphapi_[0][hi];
+//                for (int i = 0; i < nocc; ++i){
+//                    for (int ha = 0; ha < nirrep_; ++ha){
+//                        int nocca = ref_scf_->nalphapi_[0][ha];
+//                        for (int a = nocca; a < nmopi_[ha]; ++a){
+//                            sorted_exc.push_back(boost::make_tuple(
+//                        }
+//                    }
+//                    int nocc = state_nalphapi[0][h];
+
+//                int nvir = nmopi_[h] - nocc;
+//                for (int i = 0; i < nocc; ++i){
+//                    sorted_occ.push_back(boost::make_tuple(lambda_o->get(h,i),h,i));
+//                }
+//                for (int i = 0; i < nvir; ++i){
+//                    sorted_vir.push_back(boost::make_tuple(lambda_v->get(h,i),h,i));
+//                }
+//            }
+//            std::sort(sorted_occ.begin(),sorted_occ.end());
+//            std::sort(sorted_vir.begin(),sorted_vir.end());
+//        }
     }
 
     for (int f = 0; f < std::min(int(options["VC"].size()),nconstraints); ++f){
@@ -173,62 +174,62 @@ void UCKS::guess()
     }
 }
 
-void UCKS::find_occupation()
-{
-    std::vector<std::pair<double, int> > pairs_a;
-    std::vector<std::pair<double, int> > pairs_b;
-    for (int h=0; h<epsilon_a_->nirrep(); ++h) {
-        for (int i=0; i<epsilon_a_->dimpi()[h]; ++i)
-            pairs_a.push_back(make_pair(epsilon_a_->get(h, i), h));
-    }
-    for (int h=0; h<epsilon_b_->nirrep(); ++h) {
-        for (int i=0; i<epsilon_b_->dimpi()[h]; ++i)
-            pairs_b.push_back(make_pair(epsilon_b_->get(h, i), h));
-    }
-    sort(pairs_a.begin(),pairs_a.end());
-    sort(pairs_b.begin(),pairs_b.end());
+//void UCKS::find_occupation()
+//{
+//    if(not do_excitation){
+//        // Find or read the ground state occupation
+//        std::vector<std::pair<double, int> > pairs_a;
+//        std::vector<std::pair<double, int> > pairs_b;
+//        for (int h = 0; h < epsilon_a_->nirrep(); ++h) {
+//            for (int i = 0; i < epsilon_a_->dimpi()[h]; ++i)
+//                pairs_a.push_back(std::make_pair(epsilon_a_->get(h, i), h));
+//        }
+//        for (int h = 0; h < epsilon_b_->nirrep(); ++h) {
+//            for (int i = 0; i < epsilon_b_->dimpi()[h]; ++i)
+//                pairs_b.push_back(std::make_pair(epsilon_b_->get(h, i), h));
+//        }
+//        sort(pairs_a.begin(),pairs_a.end());
+//        sort(pairs_b.begin(),pairs_b.end());
 
-    if(!input_docc_ && !input_socc_){
-        memset(nalphapi_, 0, sizeof(int) * epsilon_a_->nirrep());
-        for (int i=0; i<nalpha_; ++i)
-            nalphapi_[pairs_a[i].second]++;
-    }
-    if(!input_docc_ && !input_socc_){
-        memset(nbetapi_, 0, sizeof(int) * epsilon_b_->nirrep());
-        for (int i=0; i<nbeta_; ++i)
-            nbetapi_[pairs_b[i].second]++;
-    }
+//        if(!input_docc_ and !input_socc_){
+//            memset(nalphapi_, 0, sizeof(int) * epsilon_a_->nirrep());
+//            for (int i=0; i<nalpha_; ++i)
+//                nalphapi_[pairs_a[i].second]++;
+//        }
+//        if(!input_docc_ and !input_socc_){
+//            memset(nbetapi_, 0, sizeof(int) * epsilon_b_->nirrep());
+//            for (int i=0; i<nbeta_; ++i)
+//                nbetapi_[pairs_b[i].second]++;
+//        }
 
-    int old_socc[8];
-    int old_docc[8];
-    for(int h = 0; h < nirrep_; ++h){
-        old_socc[h] = soccpi_[h];
-        old_docc[h] = doccpi_[h];
-    }
+//        int old_socc[8];
+//        int old_docc[8];
+//        for(int h = 0; h < nirrep_; ++h){
+//            old_socc[h] = soccpi_[h];
+//            old_docc[h] = doccpi_[h];
+//        }
 
-    for (int h = 0; h < nirrep_; ++h) {
-        soccpi_[h] = std::abs(nalphapi_[h] - nbetapi_[h]);
-        doccpi_[h] = std::min(nalphapi_[h] , nbetapi_[h]);
-    }
+//        for (int h = 0; h < nirrep_; ++h) {
+//            soccpi_[h] = std::abs(nalphapi_[h] - nbetapi_[h]);
+//            doccpi_[h] = std::min(nalphapi_[h] , nbetapi_[h]);
+//        }
 
-    bool occ_changed = false;
-    for(int h = 0; h < nirrep_; ++h){
-        if( old_socc[h] != soccpi_[h] || old_docc[h] != doccpi_[h]){
-            occ_changed = true;
-            break;
-        }
-    }
+//        bool occ_changed = false;
+//        for(int h = 0; h < nirrep_; ++h){
+//            if( old_socc[h] != soccpi_[h] or old_docc[h] != doccpi_[h]){
+//                occ_changed = true;
+//                break;
+//            }
+//        }
 
-    // If print > 2 (diagnostics), print always
-    if((print_ > 2 || (print_ && occ_changed)) && iteration_ > 0){
-        if (Communicator::world->me() == 0)
-            fprintf(outfile, "\tOccupation by irrep:\n");
-        print_occupation();
-    }
-    // Start MOM if needed (called here because we need the nocc
-    // to be decided by Aufbau ordering prior to MOM_start)
-    MOM_start();
-}
+//        // If print > 2 (diagnostics), print always
+//        if((print_ > 2 or (print_ and occ_changed)) and iteration_ > 0){
+//            if (Communicator::world->me() == 0)
+//                fprintf(outfile, "\tOccupation by irrep:\n");
+//            print_occupation();
+//        }
+//    }
+//}
 
 void UCKS::build_W_frag()
 {
@@ -314,18 +315,6 @@ void UCKS::form_F()
     Fb_->copy(H_);
     Fb_->add(Gb_);
 
-//    if(gs_scf_ and do_excitation){
-//        // Form the projected Fock matrices
-//        // Po = DS
-//        Temp->gemm(false,false,1.0,state_Da[0],S_,0.0);
-//        // SDFDS
-//        PoFaPo_->transform(Fa_,Temp);
-//        // Temp = 1 - DS
-//        Temp2->identity();
-//        Temp2->subtract(Temp);
-//        PvFaPv_->transform(Fa_,Temp2);
-//    }
-
     gradient_of_W();
 
     if (debug_) {
@@ -336,7 +325,7 @@ void UCKS::form_F()
 
 void UCKS::form_C()
 {
-    if(gs_scf_ and do_excitation){
+    if(do_excitation){
         // Transform Fa to the ground state MO basis
         Temp->transform(Fa_,state_Ca[0]);
         // Grab the occ and vir blocks
@@ -1013,3 +1002,44 @@ double UCKS::compute_overlap(int n)
 }
 
 }} // Namespaces
+
+
+
+//        if(do_penalty){
+//            // Find the alpha HOMO of the ground state wave function
+//            int homo_h = 0;
+//            int homo_p = 0;
+//            double homo_e = -1.0e9;
+//            for (int h = 0; h < nirrep_; ++h) {
+//                int nocc = state_nalphapi[0][h] - 1;
+//                if (nocc < 0) continue;
+//                if(state_epsilon_a[0]->get(h,nocc) > homo_e){
+//                    homo_h = h;
+//                    homo_p = nocc;
+//                    homo_e = state_epsilon_a[0]->get(h,nocc);
+//                }
+//            }
+//            fprintf(outfile,"  The HOMO orbital has energy %.9f and is %d of irrep %d.\n",homo_e,homo_p,homo_h);
+//            Pa = SharedMatrix(factory_->create_matrix("Penalty matrix alpha"));
+//            for (int mu = 0; mu < nsopi_[homo_h]; ++mu){
+//                for (int nu = 0; nu < nsopi_[homo_h]; ++nu){
+//                    double P_mn = 1000000.0 * state_Ca[0]->get(homo_h,mu,homo_p) * state_Ca[0]->get(homo_h,nu,homo_p);
+//                    Pa->set(homo_h,mu,nu,P_mn);
+//                }
+//            }
+//            Pa->transform(S_);
+//        }
+
+
+
+//    if(gs_scf_ and do_excitation){
+//        // Form the projected Fock matrices
+//        // Po = DS
+//        Temp->gemm(false,false,1.0,state_Da[0],S_,0.0);
+//        // SDFDS
+//        PoFaPo_->transform(Fa_,Temp);
+//        // Temp = 1 - DS
+//        Temp2->identity();
+//        Temp2->subtract(Temp);
+//        PvFaPv_->transform(Fa_,Temp2);
+//    }
