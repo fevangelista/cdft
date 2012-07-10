@@ -180,66 +180,9 @@ void UCKS::guess()
         form_D();
         E_ = compute_initial_E();
     }else{
-        HF::guess();
+        UKS::guess();
     }
 }
-
-//void UCKS::find_occupation()
-//{
-//    if(not do_excitation){
-//        // Find or read the ground state occupation
-//        std::vector<std::pair<double, int> > pairs_a;
-//        std::vector<std::pair<double, int> > pairs_b;
-//        for (int h = 0; h < epsilon_a_->nirrep(); ++h) {
-//            for (int i = 0; i < epsilon_a_->dimpi()[h]; ++i)
-//                pairs_a.push_back(std::make_pair(epsilon_a_->get(h, i), h));
-//        }
-//        for (int h = 0; h < epsilon_b_->nirrep(); ++h) {
-//            for (int i = 0; i < epsilon_b_->dimpi()[h]; ++i)
-//                pairs_b.push_back(std::make_pair(epsilon_b_->get(h, i), h));
-//        }
-//        sort(pairs_a.begin(),pairs_a.end());
-//        sort(pairs_b.begin(),pairs_b.end());
-
-//        if(!input_docc_ and !input_socc_){
-//            memset(nalphapi_, 0, sizeof(int) * epsilon_a_->nirrep());
-//            for (int i=0; i<nalpha_; ++i)
-//                nalphapi_[pairs_a[i].second]++;
-//        }
-//        if(!input_docc_ and !input_socc_){
-//            memset(nbetapi_, 0, sizeof(int) * epsilon_b_->nirrep());
-//            for (int i=0; i<nbeta_; ++i)
-//                nbetapi_[pairs_b[i].second]++;
-//        }
-
-//        int old_socc[8];
-//        int old_docc[8];
-//        for(int h = 0; h < nirrep_; ++h){
-//            old_socc[h] = soccpi_[h];
-//            old_docc[h] = doccpi_[h];
-//        }
-
-//        for (int h = 0; h < nirrep_; ++h) {
-//            soccpi_[h] = std::abs(nalphapi_[h] - nbetapi_[h]);
-//            doccpi_[h] = std::min(nalphapi_[h] , nbetapi_[h]);
-//        }
-
-//        bool occ_changed = false;
-//        for(int h = 0; h < nirrep_; ++h){
-//            if( old_socc[h] != soccpi_[h] or old_docc[h] != doccpi_[h]){
-//                occ_changed = true;
-//                break;
-//            }
-//        }
-
-//        // If print > 2 (diagnostics), print always
-//        if((print_ > 2 or (print_ and occ_changed)) and iteration_ > 0){
-//            if (Communicator::world->me() == 0)
-//                fprintf(outfile, "\tOccupation by irrep:\n");
-//            print_occupation();
-//        }
-//    }
-//}
 
 void UCKS::build_W_frag()
 {
@@ -456,6 +399,7 @@ void UCKS::form_C()
         current_excited_state->add_hole(hole.get<1>(),hole_mo,true);
         current_excited_state->add_particle(particle.get<1>(),particle_mo,true);
 
+
         // Adjust the occupation (nalphapi_,nbetapi_)
         for (int h = 0; h < nirrep_; ++h){
             nalphapi_[h] = state_nalphapi[0][h];
@@ -540,6 +484,7 @@ void UCKS::form_C()
             TempMatrix->copy(Ca_);
             Ca_->gemm(false,false,1.0,TempMatrix,TempMatrix2,0.0);
         }
+
         // At this point the orbitals are sorted according to the energy but we
         // want to make sure that the hole and the particle MO appear where they
         // should, that is the holes in the virtual space and the particles in
@@ -551,11 +496,11 @@ void UCKS::form_C()
         TempMatrix->zero();
         TempVector->zero();
         for (int h = 0; h < nirrep_; ++h){
-            int m = naholepi[h];  // Offset by the number of holes
+            int m = napartpi[h];  // Offset by the number of holes
             int nso = nsopi_[h];
             int nmo = nmopi_[h];
-            double** T_h = TempMatrix->pointer();
-            double** C_h = Ca_->pointer();
+            double** T_h = TempMatrix->pointer(h);
+            double** C_h = Ca_->pointer(h);
             for (int p = 0; p < nmo; ++p){
                 // Is this MO a hole or a particle?
                 if(std::fabs(epsilon_a_->get(h,p)) > 1.0e-6){
@@ -565,10 +510,11 @@ void UCKS::form_C()
                     }
                     m += 1;
                 }
+
             }
         }
         // Place the hole orbital in the last MO of its irrep
-        TempMatrix->set_column(hole.get<1>(),nmopi_[hole.get<1>()],hole_mo);
+        TempMatrix->set_column(hole.get<1>(),nmopi_[hole.get<1>()]-1,hole_mo);
         TempVector->set(hole.get<1>(),nmopi_[hole.get<1>()],hole.get<0>());
         // Place the particle orbital in the first MO of its irrep
         TempMatrix->set_column(particle.get<1>(),0,particle_mo);
@@ -588,46 +534,46 @@ void UCKS::form_C()
     }
 }
 
-void UCKS::form_D()
-{
-    for (int h = 0; h < nirrep_; ++h) {
-        int nso = nsopi_[h];
-        int nmo = nmopi_[h];
-        int na = nalphapi_[h];
-        int nb = nbetapi_[h];
+//void UCKS::form_D()
+//{
+//    for (int h = 0; h < nirrep_; ++h) {
+//        int nso = nsopi_[h];
+//        int nmo = nmopi_[h];
+//        int na = nalphapi_[h];
+//        int nb = nbetapi_[h];
 
-        if (nso == 0 || nmo == 0) continue;
+//        if (nso == 0 || nmo == 0) continue;
 
-        double* aocc_num_h = aocc_num_->pointer(h);
-        double* bocc_num_h = bocc_num_->pointer(h);
-        double** Ca = Ca_->pointer(h);
-        double** Cb = Cb_->pointer(h);
-        double** Da = Da_->pointer(h);
-        double** Db = Db_->pointer(h);
+//        double* aocc_num_h = aocc_num_->pointer(h);
+//        double* bocc_num_h = bocc_num_->pointer(h);
+//        double** Ca = Ca_->pointer(h);
+//        double** Cb = Cb_->pointer(h);
+//        double** Da = Da_->pointer(h);
+//        double** Db = Db_->pointer(h);
 
-        if (na == 0)
-            ::memset(static_cast<void*>(Da[0]), '\0', sizeof(double)*nso*nso);
-        if (nb == 0)
-            ::memset(static_cast<void*>(Db[0]), '\0', sizeof(double)*nso*nso);
-        for (int mu = 0; mu < nso; ++mu){
-            for (int nu = 0; nu < nso; ++nu){
-                for (int p = 0; p < nmo; ++p){
-                    Da[mu][nu] += Ca[mu][p] * Ca[nu][p] * aocc_num_h[p];
-                    Db[mu][nu] += Cb[mu][p] * Cb[nu][p] * bocc_num_h[p];
-                }
-            }
-        }
-    }
+//        if (na == 0)
+//            ::memset(static_cast<void*>(Da[0]), '\0', sizeof(double)*nso*nso);
+//        if (nb == 0)
+//            ::memset(static_cast<void*>(Db[0]), '\0', sizeof(double)*nso*nso);
+//        for (int mu = 0; mu < nso; ++mu){
+//            for (int nu = 0; nu < nso; ++nu){
+//                for (int p = 0; p < nmo; ++p){
+//                    Da[mu][nu] += Ca[mu][p] * Ca[nu][p] * aocc_num_h[p];
+//                    Db[mu][nu] += Cb[mu][p] * Cb[nu][p] * bocc_num_h[p];
+//                }
+//            }
+//        }
+//    }
 
-    Dt_->copy(Da_);
-    Dt_->add(Db_);
+//    Dt_->copy(Da_);
+//    Dt_->add(Db_);
 
-    if (debug_) {
-        fprintf(outfile, "in UCKS::form_D:\n");
-        Da_->print();
-        Db_->print();
-    }
-}
+//    if (debug_) {
+//        fprintf(outfile, "in UCKS::form_D:\n");
+//        Da_->print();
+//        Db_->print();
+//    }
+//}
 
 /// Gradient of W
 ///

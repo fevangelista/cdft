@@ -11,7 +11,7 @@ ExcitedState::ExcitedState()
     nbhole_ = 0;
     nbpart_ = 0;
     nbpart_ = 0;
-    for(int h = 0; ++h; h < 8){
+    for(int h = 0; h < 8; ++h){
         aholepi_.push_back(0);
         bholepi_.push_back(0);
         apartpi_.push_back(0);

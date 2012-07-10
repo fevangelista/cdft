@@ -157,8 +157,8 @@ protected:
      virtual void form_F();
      /// Diagonalize the Fock matrix to get the MO coefficients
      virtual void form_C();
-     /// Computes the density matrix using the occupation numbers
-     virtual void form_D();
+//     /// Computes the density matrix using the occupation numbers
+//     virtual void form_D();
      /// Compute the value of the Lagrangian, at convergence it yields the energy
      virtual double compute_E();
      /// Test the convergence of the CKS procedure
