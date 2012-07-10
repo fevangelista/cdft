@@ -3,6 +3,7 @@
 
 #include <libscf_solver/ks.h>
 #include <constraint.h>
+#include <excited_state.h>
 
 namespace psi{
     class Options;
@@ -25,6 +26,12 @@ protected:
      int nexclude_occ;
      /// Number of virtual orbitals to project out
      int nexclude_vir;
+     /// The occupation of the alpha orbitals
+     SharedVector aocc_num_;
+     /// The occupation of the beta orbitals
+     SharedVector bocc_num_;
+
+     // Information about the excited states
      /// The alpha eigenvalues for each electronic state
      std::vector<SharedVector> state_epsilon_a;
      /// The alpha MO coefficients for each electronic state
@@ -35,6 +42,11 @@ protected:
      std::vector<Dimension> state_nalphapi;
      /// The beta MO coefficients for each electronic state
      std::vector<Dimension> state_nbetapi;
+     /// Details of the excited states
+     SharedExcitedState current_excited_state;
+     /// Details of the other excited states
+     std::vector<SharedExcitedState> excited_states;
+
      /// The alpha density matrix for each electronic state
      std::vector<SharedMatrix> state_Da;
      /// The beta density matrix for each electronic state
@@ -74,10 +86,21 @@ protected:
      SharedMatrix Ub;
      /// The constraint objects
      std::vector<SharedConstraint> constraints;
+
+
      /// A temporary matrix
-     SharedMatrix Temp;
+     SharedMatrix TempMatrix;
      /// A temporary matrix
-     SharedMatrix Temp2;
+     SharedMatrix TempMatrix2;
+     /// A temporary vector
+     SharedVector TempVector;
+     /// SVD temporary matrix V
+     SharedMatrix svdV;
+     /// SVD temporary matrix U
+     SharedMatrix svdU;
+     /// SVD temporary vector sigma
+     SharedVector svds;
+
      /// A copy of the one-electron potential
      SharedMatrix H_copy;
      /// The Lagrange multipliers, Vc in Phys. Rev. A, 72, 024502 (2005)
@@ -108,8 +131,10 @@ protected:
      bool save_H_;
 
      int nW_opt;
+
+     // UKS specific functions
      /// Class initializer
-     void init(Options &options);
+     void init();
      /// Build the fragment constrain matrices in the SO basis
      void build_W_frag();
      /// Build the excitation constraint matrices in the SO basis
@@ -122,20 +147,24 @@ protected:
      void constraint_optimization();
      /// Compute the overlap of this solution to the n-th state
      double compute_overlap(int n);
+     /// Compute a correction for the mixed excited states
+     double compute_triplet_correction();
+     /// Compute the corresponding orbitals for the alpha-beta MOs
+     void corresponding_ab_mos();
 
      // Overloaded UKS function
      /// Form the Fock matrix augmented with the constraints and/or projected
      virtual void form_F();
      /// Diagonalize the Fock matrix to get the MO coefficients
      virtual void form_C();
+     /// Computes the density matrix using the occupation numbers
+     virtual void form_D();
      /// Compute the value of the Lagrangian, at convergence it yields the energy
      virtual double compute_E();
      /// Test the convergence of the CKS procedure
      virtual bool test_convergency();
      /// Guess the starting MO
      virtual void guess();
-     /// Find the orbital occupation
-//     virtual void find_occupation();
 };
 
 }} // Namespaces

@@ -22,7 +22,7 @@ UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio)
     do_excitation = false;
     nexclude_occ = 0;
     nexclude_vir = 0;
-    init(options);
+    init();
 }
 
 UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<UCKS> ref_scf)
@@ -31,15 +31,15 @@ UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<UCK
     do_excitation = true;
     nexclude_occ = ref_scf->nexclude_occ;
     nexclude_vir = ref_scf->nexclude_vir;
-    init(options);
+    init();
 }
 
-void UCKS::init(Options &options)
+void UCKS::init()
 {
     fprintf(outfile,"\n  ==> Constrained DFT (UCKS) <==\n\n");
 
-    optimize_Vc = options.get_bool("OPTIMIZE_VC");
-    gradW_threshold_ = options.get_double("W_CONVERGENCE");
+    optimize_Vc = KS::options_.get_bool("OPTIMIZE_VC");
+    gradW_threshold_ = KS::options_.get_double("W_CONVERGENCE");
     fprintf(outfile,"  gradW threshold = :%9.2e\n",gradW_threshold_);
     nfrag = basisset()->molecule()->nfragments();
     fprintf(outfile,"  Number of fragments: %d\n",nfrag);
@@ -47,9 +47,9 @@ void UCKS::init(Options &options)
     build_W_frag();
 
     // Check the option CHARGE, if it is defined use it to define the constrained charges, "-" skips the constraint
-    for (int f = 0; f < int(options["CHARGE"].size()); ++f){
-        if(options["CHARGE"][f].to_string() != "-"){
-            double constrained_charge = options["CHARGE"][f].to_double();
+    for (int f = 0; f < int(KS::options_["CHARGE"].size()); ++f){
+        if(KS::options_["CHARGE"][f].to_string() != "-"){
+            double constrained_charge = KS::options_["CHARGE"][f].to_double();
             double Nc = frag_nuclear_charge[f] - constrained_charge;
             SharedConstraint constraint(new Constraint(W_frag[f],Nc,1.0,1.0,"charge(" + to_string(f) + ")"));
             constraints.push_back(constraint);
@@ -59,9 +59,9 @@ void UCKS::init(Options &options)
         }
     }
     // Check the option SPIN, if it is defined use it to define the constrained spins, "-" skips the constraint
-    for (int f = 0; f < int(options["SPIN"].size()); ++f){
-        if(options["SPIN"][f].to_string() != "-"){
-            double constrained_spin = options["SPIN"][f].to_double();
+    for (int f = 0; f < int(KS::options_["SPIN"].size()); ++f){
+        if(KS::options_["SPIN"][f].to_string() != "-"){
+            double constrained_spin = KS::options_["SPIN"][f].to_double();
             double Nc = constrained_spin;
             SharedConstraint constraint(new Constraint(W_frag[f],Nc,0.5,-0.5,"spin(" + to_string(f) + ")"));
             constraints.push_back(constraint);
@@ -72,18 +72,28 @@ void UCKS::init(Options &options)
     }
 
     nconstraints = static_cast<int>(constraints.size());
+
+    // Allocate vectors
+    aocc_num_ = factory_->create_shared_vector("Alpha occupation number");
+    bocc_num_ = factory_->create_shared_vector("Beta occupation number");
+    svds = factory_->create_shared_vector("SVD sigma");
+    TempVector = factory_->create_shared_vector("SVD sigma");
     gradW = SharedVector(new Vector("gradW",nconstraints));
     gradW_old = SharedVector(new Vector("gradW_old",nconstraints));
     gradW_mo_resp = SharedVector(new Vector("gradW_mo_resp",nconstraints));
     Vc = SharedVector(new Vector("Vc",nconstraints));
     Vc_old = SharedVector(new Vector("Vc_old",nconstraints));
+
+    // Allocate matrices
+    H_copy = factory_->create_shared_matrix("H_copy");
+    TempMatrix = factory_->create_shared_matrix("Temp");
+    TempMatrix2 = factory_->create_shared_matrix("Temp2");
+    svdV = factory_->create_shared_matrix("SVD V");
+    svdU = factory_->create_shared_matrix("SVD U");
+    Ua = factory_->create_shared_matrix("U alpha");
+    Ub = factory_->create_shared_matrix("U beta");
     hessW = SharedMatrix(new Matrix("hessW",nconstraints,nconstraints));
     hessW_BFGS = SharedMatrix(new Matrix("hessW_BFGS",nconstraints,nconstraints));
-    H_copy = SharedMatrix(factory_->create_matrix("H_copy"));
-    Temp = SharedMatrix(factory_->create_matrix("Temp"));
-    Temp2 = SharedMatrix(factory_->create_matrix("Temp2"));
-    Ua = SharedMatrix(factory_->create_matrix("U alpha"));
-    Ub = SharedMatrix(factory_->create_matrix("U beta"));
 
     if(do_excitation){
         fprintf(outfile,"  Saving the reference orbitals for an excited state computation\n");
@@ -143,13 +153,13 @@ void UCKS::init(Options &options)
 //        }
     }
 
-    for (int f = 0; f < std::min(int(options["VC"].size()),nconstraints); ++f){
-        if(options["VC"][f].to_string() != "-"){
-            Vc->set(f,options["VC"][f].to_double());
+    for (int f = 0; f < std::min(int(KS::options_["VC"].size()),nconstraints); ++f){
+        if(KS::options_["VC"][f].to_string() != "-"){
+            Vc->set(f,KS::options_["VC"][f].to_double());
         }else{
             Vc->set(f,0.0);
         }
-        fprintf(outfile,"  The Lagrange multiplier for constraint %d will be initialized to Vc = %f .\n",f,options["VC"][f].to_double());
+        fprintf(outfile,"  The Lagrange multiplier for constraint %d will be initialized to Vc = %f .\n",f,KS::options_["VC"][f].to_double());
     }
 
     if(optimize_Vc){
@@ -296,9 +306,9 @@ void UCKS::form_F()
     // Augement the one-electron potential (H_) with the CDFT terms
     H_->copy(H_copy);
     for (int c = 0; c < nconstraints; ++c){
-        Temp->copy(constraints[c]->W_so());
-        Temp->scale(Vc->get(c) * constraints[c]->weight_alpha());
-        H_->add(Temp);
+        TempMatrix->copy(constraints[c]->W_so());
+        TempMatrix->scale(Vc->get(c) * constraints[c]->weight_alpha());
+        H_->add(TempMatrix);
     }
     Fa_->copy(H_);
     Fa_->add(Ga_);
@@ -308,9 +318,9 @@ void UCKS::form_F()
 
     H_->copy(H_copy);
     for (int c = 0; c < nconstraints; ++c){
-        Temp->copy(constraints[c]->W_so());
-        Temp->scale(Vc->get(c) * constraints[c]->weight_beta());
-        H_->add(Temp);
+        TempMatrix->copy(constraints[c]->W_so());
+        TempMatrix->scale(Vc->get(c) * constraints[c]->weight_beta());
+        H_->add(TempMatrix);
     }
     Fb_->copy(H_);
     Fb_->add(Gb_);
@@ -325,15 +335,30 @@ void UCKS::form_F()
 
 void UCKS::form_C()
 {
-    if(do_excitation){
+    if(not do_excitation){
+        // Ground state: use the default form_C
+        UKS::form_C();
+    }else{
+        // Excited state: use specialized code
+
         // Transform Fa to the ground state MO basis
-        Temp->transform(Fa_,state_Ca[0]);
+        TempMatrix->transform(Fa_,state_Ca[0]);
+
         // Grab the occ and vir blocks
+        // |--------|--------|
+        // |        |        |
+        // | PoFaPo |        |
+        // |        |        |
+        // |--------|--------|
+        // |        |        |
+        // |        | PvFaPv |
+        // |        |        |
+        // |--------|--------|
         for (int h = 0; h < nirrep_; ++h){
             int nocc = state_nalphapi[0][h];
             int nvir = nmopi_[h] - nocc;
             if (nocc != 0){
-                double** Temp_h = Temp->pointer(h);
+                double** Temp_h = TempMatrix->pointer(h);
                 double** PoFaPo_h = PoFaPo_->pointer(h);
                 for (int i = 0; i < nocc; ++i){
                     for (int j = 0; j < nocc; ++j){
@@ -342,7 +367,7 @@ void UCKS::form_C()
                 }
             }
             if (nvir != 0){
-                double** Temp_h = Temp->pointer(h);
+                double** Temp_h = TempMatrix->pointer(h);
                 double** PvFaPv_h = PvFaPv_->pointer(h);
                 for (int i = 0; i < nvir; ++i){
                     for (int j = 0; j < nvir; ++j){
@@ -354,7 +379,7 @@ void UCKS::form_C()
         PoFaPo_->diagonalize(Uo,lambda_o);
         PvFaPv_->diagonalize(Uv,lambda_v);
 
-        // Find the HOMO and the LUMO
+        // Sort the orbitals according to the eigenvalues of PoFaPo and PvFaPv
         std::vector<boost::tuple<double,int,int> > sorted_occ;
         std::vector<boost::tuple<double,int,int> > sorted_vir;
         for (int h = 0; h < nirrep_; ++h){
@@ -364,21 +389,36 @@ void UCKS::form_C()
                 sorted_occ.push_back(boost::make_tuple(lambda_o->get(h,i),h,i));
             }
             for (int i = 0; i < nvir; ++i){
-                sorted_vir.push_back(boost::make_tuple(lambda_v->get(h,i),h,i));
+                sorted_vir.push_back(boost::make_tuple(lambda_v->get(h,i),h,i + nocc));  // N.B. shifted to full indexing
             }
         }
         std::sort(sorted_occ.begin(),sorted_occ.end());
         std::sort(sorted_vir.begin(),sorted_vir.end());
-        boost::tuple<double,int,int> homo = sorted_occ.back();
-        boost::tuple<double,int,int> lumo = sorted_vir.front();
 
-        fprintf(outfile,"   homo (%d,%d,%.6f) -> lumo (%d,%d,%.6f)\n",homo.get<1>(),homo.get<2>(),homo.get<0>(),lumo.get<1>(),state_nalphapi[0][lumo.get<1>()] + lumo.get<2>(),lumo.get<0>());
-        Temp->zero();
+        // Extract the hole and particle alpha orbitals according to an energy criteria (this needs a generalization)
+        boost::tuple<double,int,int> hole;
+        if (KS::options_.get_str("CDFT_EXC_HOLE") == "VALENCE"){
+            // For valence excitations select the highest lying orbital (HOMO-like)
+            hole = sorted_occ.back();
+        }else if(KS::options_.get_str("CDFT_EXC_HOLE") == "CORE"){
+            // For core excitations select the lowest lying orbital (1s-like)
+            hole = sorted_occ.front();
+        }
+        // In the case of particle, we assume that we are always interested in the lowest lying orbitals
+        boost::tuple<double,int,int> particle = sorted_vir.front();
+
+        // Form the matrix that diagonalizes the PoFaPo and PvFaPv blocks
+        // |----|----|
+        // | Uo | 0  |
+        // |----|----|
+        // | 0  | Uv |
+        // |----|----|
+        TempMatrix->zero();
         for (int h = 0; h < nirrep_; ++h){
             int nocc = state_nalphapi[0][h];
             int nvir = nmopi_[h] - nocc;
             if (nocc != 0){
-                double** Temp_h = Temp->pointer(h);
+                double** Temp_h = TempMatrix->pointer(h);
                 double** Uo_h = Uo->pointer(h);
                 for (int i = 0; i < nocc; ++i){
                     epsilon_a_->set(h,i,lambda_o->get(h,i));
@@ -388,7 +428,7 @@ void UCKS::form_C()
                 }
             }
             if (nvir != 0){
-                double** Temp_h = Temp->pointer(h);
+                double** Temp_h = TempMatrix->pointer(h);
                 double** Uv_h = Uv->pointer(h);
                 for (int i = 0; i < nvir; ++i){
                     epsilon_a_->set(h,i + nocc,lambda_v->get(h,i));
@@ -399,223 +439,193 @@ void UCKS::form_C()
             }
         }
 
-//        // Swap the homo and lumo MOs
-//        Dimension new_occupation = state_nalphapi[0];
-//        if(homo.get<1>() == lumo.get<1>()){
-//            Temp->swap_columns(homo.get<1>(),homo.get<2>(),lumo.get<2>());
-//            epsilon_a_->set(homo.get<1>(),homo.get<2>(),lumo.get<0>());
-//            epsilon_a_->set(lumo.get<1>(),lumo.get<2>(),homo.get<0>());
-//        }else{
-//            epsilon_a_->set(homo.get<1>(),homo.get<2>(),1000.0);
-//            new_occupation.set(homo.get<1>(),state_nalphapi[0][homo.get<1>()] - 1);
-//            new_occupation.set(lumo.get<1>(),state_nalphapi[0][lumo.get<1>()] + 1);
-//        }
-        //new_occupation.print();
-        // Get the new orbitals
-        Ca_->gemm(false,false,1.0,state_Ca[0],Temp,0.0);
+        // Get the excited state orbitals: Ca(ex) = Ca(gs) * (Uo | Uv)
+        Ca_->gemm(false,false,1.0,state_Ca[0],TempMatrix,0.0);
+        fprintf(outfile,"   hole/particle pair :(irrep = %d,mo = %d,energy = %.6f) -> (irrep = %d,mo = %d,energy = %.6f)\n",
+                        hole.get<1>(),hole.get<2>(),hole.get<0>(),
+                        particle.get<1>(),particle.get<2>(),particle.get<0>());
 
-//        // Canonicalize the orbitals
-//        SharedMatrix Fcan = SharedMatrix(new Matrix("Fcan",new_occupation,new_occupation));
-//        SharedMatrix Ucan = SharedMatrix(new Matrix("Ucan",new_occupation,new_occupation));
-//        SharedVector lambda_can = SharedVector(new Vector("lambda_can",new_occupation));
+        // Save the hole and particle information and at the same time zero the columns in Ca_
+        current_excited_state = SharedExcitedState(new ExcitedState);
+        SharedVector hole_mo = Ca_->get_column(hole.get<1>(),hole.get<2>());
+        Ca_->zero_column(hole.get<1>(),hole.get<2>());
+        epsilon_a_->set(hole.get<1>(),hole.get<2>(),0.0);
+        SharedVector particle_mo = Ca_->get_column(particle.get<1>(),particle.get<2>());
+        Ca_->zero_column(particle.get<1>(),particle.get<2>());
+        epsilon_a_->set(particle.get<1>(),particle.get<2>(),0.0);
+        current_excited_state->add_hole(hole.get<1>(),hole_mo,true);
+        current_excited_state->add_particle(particle.get<1>(),particle_mo,true);
 
-        Temp->transform(Fa_,Ca_);
-        {
-            // Zero the HOMO couplings
-            int h = homo.get<1>();
-            int nmo = nmopi_[h];
-            if (nmo != 0){
-                double** Temp_h = Temp->pointer(h);
-                Temp_h[homo.get<2>()][homo.get<2>()] += 1000.0; // Shift the HOMO
-                for (int p = 0; p < nmo; ++p){
-                    if(p != homo.get<2>()){
-                        Temp_h[homo.get<2>()][p] = Temp_h[p][homo.get<2>()] = 0.0;
+        // Adjust the occupation (nalphapi_,nbetapi_)
+        for (int h = 0; h < nirrep_; ++h){
+            nalphapi_[h] = state_nalphapi[0][h];
+            nbetapi_[h] = state_nbetapi[0][h];
+        }
+        nalphapi_[hole.get<1>()] -= 1;
+        nalphapi_[particle.get<1>()] += 1;
+
+        int old_socc[8];
+        int old_docc[8];
+        for(int h = 0; h < nirrep_; ++h){
+            old_socc[h] = soccpi_[h];
+            old_docc[h] = doccpi_[h];
+        }
+
+        for (int h = 0; h < nirrep_; ++h) {
+            soccpi_[h] = std::abs(nalphapi_[h] - nbetapi_[h]);
+            doccpi_[h] = std::min(nalphapi_[h] , nbetapi_[h]);
+        }
+
+        bool occ_changed = false;
+        for(int h = 0; h < nirrep_; ++h){
+            if( old_socc[h] != soccpi_[h] || old_docc[h] != doccpi_[h]){
+                occ_changed = true;
+                break;
+            }
+        }
+
+        // If print > 2 (diagnostics), print always
+        if((print_ > 2 || (print_ && occ_changed)) && iteration_ > 0){
+            if (Communicator::world->me() == 0)
+                fprintf(outfile, "\tOccupation by irrep:\n");
+            print_occupation();
+        }
+
+        // Optionally, include relaxation effects
+        if(KS::options_.get_str("CDFT_EXC_METHOD") == "CEE-R"){
+            // Transform Fa to the excited state MO basis, this includes the hole and particle states
+            TempMatrix->transform(Fa_,Ca_);
+
+            // Zero the terms that couple the hole, particle, and the rest of the orbitals
+            // |--------|--------|
+            // |       0|0       |
+            // |       0|0       |
+            // |00000000|00000000|
+            // |--------|--------|
+            // |00000000|00000000|
+            // |       0|0       |
+            // |       0|0       |
+            // |--------|--------|
+            {
+                // Zero the hole couplings
+                int h = hole.get<1>();
+                int i = hole.get<2>();
+                int nmo = nmopi_[h];
+                if (nmo != 0){
+                    double** Temp_h = TempMatrix->pointer(h);
+                    for (int p = 0; p < nmo; ++p){
+                        if(p != i){
+                            Temp_h[i][p] = Temp_h[p][i] = 0.0;
+                        }
+                    }
+                }
+
+            }
+            {
+                // Zero the LUMO couplings
+                int h = particle.get<1>();
+                int i = particle.get<2>();
+                int nmo = nmopi_[h];
+                if (nmo != 0){
+                    double** Temp_h = TempMatrix->pointer(h);
+                    for (int p = 0; p < nmo; ++p){
+                        if(p != i){
+                            Temp_h[i][p] = Temp_h[p][i] = 0.0;
+                        }
                     }
                 }
             }
 
+            TempMatrix->diagonalize(TempMatrix2,epsilon_a_);
+            TempMatrix->copy(Ca_);
+            Ca_->gemm(false,false,1.0,TempMatrix,TempMatrix2,0.0);
         }
-        {
-            // Zero the LUMO couplings
-            int h = lumo.get<1>();
-            int i = state_nalphapi[0][h] + lumo.get<2>();
+        // At this point the orbitals are sorted according to the energy but we
+        // want to make sure that the hole and the particle MO appear where they
+        // should, that is the holes in the virtual space and the particles in
+        // the occupied space.
+        // |(1) (2) ... (hole) | (particle) ...> will become
+        // |(particle) (1) (2) ...  | ... (hole)>
+        std::vector<int> naholepi = current_excited_state->aholepi();
+        std::vector<int> napartpi = current_excited_state->apartpi();
+        TempMatrix->zero();
+        TempVector->zero();
+        for (int h = 0; h < nirrep_; ++h){
+            int m = naholepi[h];  // Offset by the number of holes
+            int nso = nsopi_[h];
             int nmo = nmopi_[h];
-            if (nmo != 0){
-                double** Temp_h = Temp->pointer(h);
-                for (int p = 0; p < nmo; ++p){
-                    if(p != i){
-                        Temp_h[i][p] = Temp_h[p][i] = 0.0;
+            double** T_h = TempMatrix->pointer();
+            double** C_h = Ca_->pointer();
+            for (int p = 0; p < nmo; ++p){
+                // Is this MO a hole or a particle?
+                if(std::fabs(epsilon_a_->get(h,p)) > 1.0e-6){
+                    TempVector->set(h,m,epsilon_a_->get(h,p));
+                    for (int q = 0; q < nso; ++q){
+                        T_h[q][m] = C_h[q][p];
                     }
+                    m += 1;
                 }
             }
         }
+        // Place the hole orbital in the last MO of its irrep
+        TempMatrix->set_column(hole.get<1>(),nmopi_[hole.get<1>()],hole_mo);
+        TempVector->set(hole.get<1>(),nmopi_[hole.get<1>()],hole.get<0>());
+        // Place the particle orbital in the first MO of its irrep
+        TempMatrix->set_column(particle.get<1>(),0,particle_mo);
+        TempVector->set(particle.get<1>(),0,particle.get<0>());
+        Ca_->copy(TempMatrix);
+        epsilon_a_->copy(TempVector.get());
 
-//        // Grab the occ and vir blocks
-//        for (int h = 0; h < nirrep_; ++h){
-//            int nocc = new_occupation[h];
-//            int nvir = nmopi_[h] - nocc;
-//            if (nocc != 0){
-//                double** Temp_h = Temp->pointer(h);
-//                double** Fcan_h = Fcan->pointer(h);
-//                for (int i = 0; i < nocc; ++i){
-//                    for (int j = 0; j < nocc; ++j){
-//                        Fcan_h[i][j] = Temp_h[i][j];
-//                    }
-//                }
-//            }
-//        }
-//        Fcan->diagonalize(Ucan,lambda_can);
-//        Temp->zero();
-//        for (int h = 0; h < nirrep_; ++h){
-//            int nocc = new_occupation[h];
-//            int nvir = nmopi_[h] - nocc;
-//            if (nocc != 0){
-//                double** Temp_h = Temp->pointer(h);
-//                double** Ucan_h = Ucan->pointer(h);
-//                for (int i = 0; i < nocc; ++i){
-//                    epsilon_a_->set(h,i,lambda_can->get(h,i));
-//                    for (int j = 0; j < nocc; ++j){
-//                        Temp_h[i][j] = Ucan_h[i][j];
-//                    }
-//                }
-//            }
-//            if (nvir != 0){
-//                double** Temp_h = Temp->pointer(h);
-//                for (int i = 0; i < nvir; ++i){
-//                    Temp_h[i + nocc][i + nocc] = 1.0;
-//                }
-//            }
-//        }
-        Temp->diagonalize(Temp2,epsilon_a_);
-        Temp->copy(Ca_);
-        Ca_->gemm(false,false,1.0,Temp,Temp2,0.0);
-        Temp->transform(Fa_,Ca_);
-//        // Get the new orbitals
-//        Temp2->copy(Ca_);
-//        Ca_->gemm(false,false,1.0,Temp2,Temp,0.0);
-
-//        Dimension new
-//        SharedVector epsilon_ao_ = SharedVector(factory_->create_vector());
-//        SharedVector epsilon_av_ = SharedVector(factory_->create_vector());
-//        diagonalize_F(PoFaPo_, Temp,  epsilon_ao_);
-//        diagonalize_F(PvFaPv_, Temp2, epsilon_av_);
-//        int homo_h = 0;
-//        int homo_p = 0;
-//        double homo_energy = -1.0e10;
-//        int lumo_h = 0;
-//        int lumo_p = 0;
-//        double lumo_energy = +1.0e10;
-//        for (int h = 0; h < nirrep_; ++h){
-//            int nmo  = nmopi_[h];
-//            int nso  = nsopi_[h];
-//            if (nmo == 0 or nso == 0) continue;
-//            double** Ca_h  = Ca_->pointer(h);
-//            double** Cao_h = Temp->pointer(h);
-//            double** Cav_h = Temp2->pointer(h);
-//            int no = 0;
-//            for (int p = 0; p < nmo; ++p){
-//                if(std::fabs(epsilon_ao_->get(h,p)) > 1.0e-6 ){
-//                    for (int mu = 0; mu < nmo; ++mu){
-//                        Ca_h[mu][no] = Cao_h[mu][p];
-//                    }
-//                    epsilon_a_->set(h,no,epsilon_ao_->get(h,p));
-//                    if (epsilon_ao_->get(h,p) > homo_energy){
-//                        homo_energy = epsilon_ao_->get(h,p);
-//                        homo_h = h;
-//                        homo_p = no;
-//                    }
-//                    no++;
-//                }
-//            }
-//            for (int p = 0; p < nmo; ++p){
-//                if(std::fabs(epsilon_av_->get(h,p)) > 1.0e-6 ){
-//                    for (int mu = 0; mu < nmo; ++mu){
-//                        Ca_h[mu][no] = Cav_h[mu][p];
-//                    }
-//                    epsilon_a_->set(h,no,epsilon_av_->get(h,p));
-//                    if (epsilon_av_->get(h,p) < lumo_energy){
-//                        lumo_energy = epsilon_av_->get(h,p);
-//                        lumo_h = h;
-//                        lumo_p = no;
-//                    }
-//                    no++;
-//                }
-//            }
-//        }
-//        // Shift the HOMO orbital in the occupied space
-
-
+        // BETA
         diagonalize_F(Fb_, Cb_, epsilon_b_);
-//        // Transform Fa to the ground state MO basis
-//        Temp->transform(Fb_,state_Cb[0]);
-//        // Grab the occ and vir blocks
-//        for (int h = 0; h < nirrep_; ++h){
-//            int nocc = state_nbetapi[0][h];
-//            int nvir = nmopi_[h] - nocc;
-//            if (nocc != 0){
-//                double** Temp_h = Temp->pointer(h);
-//                double** PoFbPo_h = PoFbPo_->pointer(h);
-//                for (int i = 0; i < nocc; ++i){
-//                    for (int j = 0; j < nocc; ++j){
-//                        PoFbPo_h[i][j] = Temp_h[i][j];
-//                    }
-//                }
-//            }
-//            if (nvir != 0){
-//                double** Temp_h = Temp->pointer(h);
-//                double** PvFbPv_h = PvFbPv_->pointer(h);
-//                for (int i = 0; i < nvir; ++i){
-//                    for (int j = 0; j < nvir; ++j){
-//                        PvFbPv_h[i][j] = Temp_h[i + nocc][j + nocc];
-//                    }
-//                }
-//            }
-//        }
-//        PoFbPo_->diagonalize(Uob,lambda_ob);
-//        PvFbPv_->diagonalize(Uvb,lambda_vb);
 
-//        Temp->zero();
-//        for (int h = 0; h < nirrep_; ++h){
-//            int nocc = state_nbetapi[0][h];
-//            int nvir = nmopi_[h] - nocc;
-//            if (nocc != 0){
-//                double** Temp_h = Temp->pointer(h);
-//                double** Uob_h = Uob->pointer(h);
-//                for (int i = 0; i < nocc; ++i){
-//                    epsilon_b_->set(h,i,lambda_ob->get(h,i));
-//                    for (int j = 0; j < nocc; ++j){
-//                        Temp_h[i][j] = Uob_h[i][j];
-//                    }
-//                }
-//            }
-//            if (nvir != 0){
-//                double** Temp_h = Temp->pointer(h);
-//                double** Uvb_h = Uvb->pointer(h);
-//                for (int i = 0; i < nvir; ++i){
-//                    epsilon_b_->set(h,i + nocc,lambda_vb->get(h,i));
-//                    for (int j = 0; j < nvir; ++j){
-//                        Temp_h[i + nocc][j + nocc] = Uvb_h[i][j];
-//                    }
-//                }
-//            }
-//        }
-//        // Get the new orbitals
-//        Cb_->gemm(false,false,1.0,state_Cb[0],Temp,0.0);
-//        Temp->transform(Fb_,Cb_);
-//        Temp->print();
-    }else{
-        diagonalize_F(Fa_, Ca_, epsilon_a_);
-        diagonalize_F(Fb_, Cb_, epsilon_b_);
+        //find_occupation();
+
+        if (debug_) {
+            Ca_->print(outfile);
+            Cb_->print(outfile);
+        }
     }
-//    if(gs_scf_){
-//        compute_overlap(0);
-//    }
+}
 
-    find_occupation();
+void UCKS::form_D()
+{
+    for (int h = 0; h < nirrep_; ++h) {
+        int nso = nsopi_[h];
+        int nmo = nmopi_[h];
+        int na = nalphapi_[h];
+        int nb = nbetapi_[h];
+
+        if (nso == 0 || nmo == 0) continue;
+
+        double* aocc_num_h = aocc_num_->pointer(h);
+        double* bocc_num_h = bocc_num_->pointer(h);
+        double** Ca = Ca_->pointer(h);
+        double** Cb = Cb_->pointer(h);
+        double** Da = Da_->pointer(h);
+        double** Db = Db_->pointer(h);
+
+        if (na == 0)
+            ::memset(static_cast<void*>(Da[0]), '\0', sizeof(double)*nso*nso);
+        if (nb == 0)
+            ::memset(static_cast<void*>(Db[0]), '\0', sizeof(double)*nso*nso);
+        for (int mu = 0; mu < nso; ++mu){
+            for (int nu = 0; nu < nso; ++nu){
+                for (int p = 0; p < nmo; ++p){
+                    Da[mu][nu] += Ca[mu][p] * Ca[nu][p] * aocc_num_h[p];
+                    Db[mu][nu] += Cb[mu][p] * Cb[nu][p] * bocc_num_h[p];
+                }
+            }
+        }
+    }
+
+    Dt_->copy(Da_);
+    Dt_->add(Db_);
 
     if (debug_) {
-        Ca_->print(outfile);
-        Cb_->print(outfile);
+        fprintf(outfile, "in UCKS::form_D:\n");
+        Da_->print();
+        Db_->print();
     }
 }
 
@@ -635,17 +645,17 @@ void UCKS::gradient_of_W()
     for (int c = 0; c < nconstraints; ++c){
         double grad = 0.0;
         // Transform W_so to the MO basis (alpha)
-        Temp->transform(constraints[c]->W_so(),Ca_);
-        Temp->scale(constraints[c]->weight_alpha());
+        TempMatrix->transform(constraints[c]->W_so(),Ca_);
+        TempMatrix->scale(constraints[c]->weight_alpha());
         // Transform Fa_ to the MO basis
-        Temp2->transform(Fa_,Ca_);
+        TempMatrix2->transform(Fa_,Ca_);
         for (int h = 0; h < nirrep_; h++) {
             int nmo  = nmopi_[h];
             int nocc = nalphapi_[h];
             int nvir = nmo - nocc;
             if (nvir == 0 or nocc == 0) continue;
-            double** Temp_h = Temp->pointer(h);
-            double** Temp2_h = Temp2->pointer(h);
+            double** Temp_h = TempMatrix->pointer(h);
+            double** Temp2_h = TempMatrix2->pointer(h);
             for (int i = 0; i < nocc; ++i){
                 for (int a = nocc; a < nmo; ++a){
                     grad += 2.0 * Temp_h[a][i] * Temp2_h[a][i] / (Temp2_h[i][i] - Temp2_h[a][a]);
@@ -653,17 +663,17 @@ void UCKS::gradient_of_W()
             }
         }
         // Transform W_so to the MO basis (beta)
-        Temp->transform(constraints[c]->W_so(),Cb_);
-        Temp->scale(constraints[c]->weight_beta());
+        TempMatrix->transform(constraints[c]->W_so(),Cb_);
+        TempMatrix->scale(constraints[c]->weight_beta());
         // Transform Fb_ to the MO basis
-        Temp2->transform(Fb_,Cb_);
+        TempMatrix2->transform(Fb_,Cb_);
         for (int h = 0; h < nirrep_; h++) {
             int nmo  = nmopi_[h];
             int nocc = nbetapi_[h];
             int nvir = nmo - nocc;
             if (nvir == 0 or nocc == 0) continue;
-            double** Temp_h = Temp->pointer(h);
-            double** Temp2_h = Temp2->pointer(h);
+            double** Temp_h = TempMatrix->pointer(h);
+            double** Temp2_h = TempMatrix2->pointer(h);
             for (int i = 0; i < nocc; ++i){
                 for (int a = nocc; a < nmo; ++a){
                     grad += 2.0 * Temp_h[a][i] * Temp2_h[a][i] / (Temp2_h[i][i] - Temp2_h[a][a]);
@@ -690,18 +700,18 @@ void UCKS::hessian_of_W()
         for (int c2 = 0; c2 <= c1; ++c2){
             double hess = 0.0;
             // Transform W_so to the MO basis (alpha)
-            Temp->transform(constraints[c1]->W_so(),Ca_);
-            Temp->scale(constraints[c1]->weight_alpha());
+            TempMatrix->transform(constraints[c1]->W_so(),Ca_);
+            TempMatrix->scale(constraints[c1]->weight_alpha());
             // Transform W_so to the MO basis (alpha)
-            Temp2->transform(constraints[c2]->W_so(),Ca_);
-            Temp2->scale(constraints[c2]->weight_alpha());
+            TempMatrix2->transform(constraints[c2]->W_so(),Ca_);
+            TempMatrix2->scale(constraints[c2]->weight_alpha());
             for (int h = 0; h < nirrep_; h++) {
                 int nmo  = nmopi_[h];
                 int nocc = nalphapi_[h];
                 int nvir = nmo - nocc;
                 if (nvir == 0 or nocc == 0) continue;
-                double** Temp_h = Temp->pointer(h);
-                double** Temp2_h = Temp2->pointer(h);
+                double** Temp_h = TempMatrix->pointer(h);
+                double** Temp2_h = TempMatrix2->pointer(h);
                 double* eps = epsilon_a_->pointer(h);
                 for (int i = 0; i < nocc; ++i){
                     for (int a = nocc; a < nmo; ++a){
@@ -710,18 +720,18 @@ void UCKS::hessian_of_W()
                 }
             }
             // Transform W_so to the MO basis (beta)
-            Temp->transform(constraints[c1]->W_so(),Cb_);
-            Temp->scale(constraints[c1]->weight_beta());
+            TempMatrix->transform(constraints[c1]->W_so(),Cb_);
+            TempMatrix->scale(constraints[c1]->weight_beta());
             // Transform W_so to the MO basis (beta)
-            Temp2->transform(constraints[c2]->W_so(),Cb_);
-            Temp2->scale(constraints[c2]->weight_beta());
+            TempMatrix2->transform(constraints[c2]->W_so(),Cb_);
+            TempMatrix2->scale(constraints[c2]->weight_beta());
             for (int h = 0; h < nirrep_; h++) {
                 int nmo  = nmopi_[h];
                 int nocc = nbetapi_[h];
                 int nvir = nmo - nocc;
                 if (nvir == 0 or nocc == 0) continue;
-                double** Temp_h = Temp->pointer(h);
-                double** Temp2_h = Temp2->pointer(h);
+                double** Temp_h = TempMatrix->pointer(h);
+                double** Temp2_h = TempMatrix2->pointer(h);
                 double* eps = epsilon_b_->pointer(h);
                 for (int i = 0; i < nocc; ++i){
                     for (int a = nocc; a < nmo; ++a){
@@ -763,7 +773,7 @@ void UCKS::hessian_update(SharedMatrix h, SharedVector dx, SharedVector dg)
 /// Optimize the Lagrange multiplier
 void UCKS::constraint_optimization()
 {
-    if(psi::scf::KS::options_.get_str("W_ALGORITHM") == "NEWTON"){
+    if(KS::options_.get_str("W_ALGORITHM") == "NEWTON"){
         // Optimize Vc once you have a good gradient and the gradient is not converged
         double max_error = 0.0;
         for (int c = 0; c < nconstraints; ++c){
@@ -878,19 +888,69 @@ bool UCKS::test_convergency()
     D_rms.subtract(Dtold_);
     Drms_ = 0.5 * D_rms.rms();
 
+    bool energy_test = fabs(ediff) < energy_threshold_;
+    bool density_test = Drms_ < density_threshold_;
+
     if(optimize_Vc){
+        bool constraint_test = gradW->norm() < gradW_threshold_;
         constraint_optimization();
-        if(fabs(ediff) < energy_threshold_ and Drms_ < density_threshold_ and gradW->norm() < gradW_threshold_){
+        if(energy_test and density_test and constraint_test){
             return true;
         }else{
             return false;
         }
     }else{
-        return (fabs(ediff) < energy_threshold_ and Drms_ < density_threshold_);
+        if(energy_test and density_test){
+            if(do_excitation){
+                double E_T = compute_triplet_correction();
+                fprintf(outfile,"  Energy corrected for triplet component = %20.12f (%.12f)",2.0 * E_ - E_T,E_T);
+            }
+            return true;
+        }
+        return false;
     }
 }
 
-/// Compute the overlap of the ground state to the current state
+double UCKS::compute_triplet_correction()
+{
+    corresponding_ab_mos();
+    // Modify the occupation numbers to get a triplet
+    for (int h = 0; h < nirrep_; ++h) {
+        int na = nalphapi_[h];
+        int nb = nbetapi_[h];
+        nalphapi_[h] = std::max(na,nb);
+        nbetapi_[h]  = std::min(na,nb);
+    }
+    fprintf(outfile, "\tNA   [ ");
+    for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nalphapi_[h]);
+    fprintf(outfile, " %4d ]\n", nalphapi_[nirrep_-1]);
+    fprintf(outfile, "\tNB   [ ");
+    for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nbetapi_[h]);
+    fprintf(outfile, " %4d ]\n", nbetapi_[nirrep_-1]);
+    // Compute the density matrices with the new occupation
+    form_D();
+    // Compute the triplet energy from the density matrices
+    double triplet_energy_aa = compute_E();
+    // Modify the occupation numbers to get a triplet
+    for (int h = 0; h < nirrep_; ++h) {
+        int na = nalphapi_[h];
+        int nb = nbetapi_[h];
+        nalphapi_[h] = std::max(na,nb);
+        nbetapi_[h]  = std::min(na,nb);
+    }
+    fprintf(outfile, "\tNA   [ ");
+    for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nalphapi_[h]);
+    fprintf(outfile, " %4d ]\n", nalphapi_[nirrep_-1]);
+    fprintf(outfile, "\tNB   [ ");
+    for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nbetapi_[h]);
+    fprintf(outfile, " %4d ]\n", nbetapi_[nirrep_-1]);
+    // Compute the density matrices with the new occupation
+    form_D();
+    // Compute the triplet energy from the density matrices
+    double triplet_energy_bb = compute_E();
+    return 0.5 * (triplet_energy_aa + triplet_energy_bb);
+}
+
 double UCKS::compute_overlap(int n)
 {
 //    // Orthogonality test
@@ -916,8 +976,8 @@ double UCKS::compute_overlap(int n)
 //    Ua->print();
 
     // Alpha block
-    Temp->gemm(false,false,1.0,S_,Ca_,0.0);
-    Ua->gemm(true,false,1.0,state_Ca[n],Temp,0.0);
+    TempMatrix->gemm(false,false,1.0,S_,Ca_,0.0);
+    Ua->gemm(true,false,1.0,state_Ca[n],TempMatrix,0.0);
     //Ua->print();
     // Grab S_aa from Ua
     SharedMatrix S_aa = SharedMatrix(new Matrix("S_aa",state_nalphapi[n],nalphapi_));
@@ -956,8 +1016,8 @@ double UCKS::compute_overlap(int n)
     }
 
     // Beta block
-    Temp->gemm(false,false,1.0,S_,Cb_,0.0);
-    Ub->gemm(true,false,1.0,state_Cb[n],Temp,0.0);
+    TempMatrix->gemm(false,false,1.0,S_,Cb_,0.0);
+    Ub->gemm(true,false,1.0,state_Cb[n],TempMatrix,0.0);
 
     // Grab S_bb from Ub
     SharedMatrix S_bb = SharedMatrix(new Matrix("S_bb",state_nbetapi[n],nbetapi_));
@@ -996,9 +1056,33 @@ double UCKS::compute_overlap(int n)
     }
     fprintf(outfile,"   det(S_aa) = %.6f det(S_bb) = %.6f  <Phi|Phi'> = %.6f\n",detS_aa,detS_bb,detS_aa * detS_bb);
     fprintf(outfile,"   <Phi'|Poa|Phi'> = %.6f  <Phi'|Pob|Phi'> = %.6f  <Phi'|Po|Phi'> = %.6f\n",nalpha_ - traceS2_aa,nbeta_ - traceS2_bb,nalpha_ - traceS2_aa + nbeta_ - traceS2_bb);
-    Temp->transform(state_Da[0],S_);
-    Temp2->transform(Temp,Ca_);
+    TempMatrix->transform(state_Da[0],S_);
+    TempMatrix2->transform(TempMatrix,Ca_);
     return (detS_aa * detS_bb);
+}
+
+void UCKS::corresponding_ab_mos()
+{
+    // Form <phi_b|S|phi_a>
+    TempMatrix->gemm(false,false,1.0,S_,Ca_,0.0);
+    TempMatrix2->gemm(true,false,1.0,Cb_,TempMatrix,0.0);
+    TempMatrix2->print();
+    TempMatrix->zero();
+    for (int h = 0; h < nirrep_; ++h) {
+        int naocc = nalphapi_[h];
+        int nbocc = nbetapi_[h];
+        if (naocc == 0 or nbocc == 0) continue;
+        double** S_occ_h = TempMatrix->pointer(h);
+        double** S_h = TempMatrix2->pointer(h);
+        for (int i = 0; i < naocc; ++i){
+            for (int j = 0; j < nbocc; ++j){
+                S_occ_h[i][j] = S_h[i][j];
+            }
+        }
+    }
+    TempMatrix->print();
+    TempMatrix->svd(svdU,svds,svdV);
+    svds->print();
 }
 
 }} // Namespaces
@@ -1043,3 +1127,229 @@ double UCKS::compute_overlap(int n)
 //        Temp2->subtract(Temp);
 //        PvFaPv_->transform(Fa_,Temp2);
 //    }
+
+
+
+////// EXCITED STATES
+//        Temp->copy(Fa_);
+//        Temp->transform(Ca_);
+
+//        Temp2->copy(Fb_);
+//        Temp2->transform(Ca_);
+
+//        Ub->copy(Temp);
+//        Ub->add(Temp2);
+//        Ub->scale(0.5);
+
+//        for (int h = 0; h < nirrep_; ++h) {
+//          // CO
+//          for (int i = 0; i < doccpi_[h]; ++i) {
+//            for (int j = doccpi_[h]; j < doccpi_[h] + soccpi_[h]; ++j) {
+//                Ub->set(h,i,j,Temp2->get(h,i,j));
+//                Ub->set(h,j,i,Temp2->get(h,j,i));
+//            }
+//          }
+//          for (int i = doccpi_[h]; i < doccpi_[h] + soccpi_[h]; ++i) {
+//            for (int j = doccpi_[h] + soccpi_[h]; j < nmopi_[h]; ++j) {
+//                Ub->set(h,i,j,Temp->get(h,i,j));
+//                Ub->set(h,j,i,Temp->get(h,j,i));
+//            }
+//          }
+//        }
+//        Ub->diagonalize(Ua,epsilon_a_);
+//        Temp->copy(Ca_);
+//        Ca_->gemm(false,false,1.0,Temp,Ua,0.0);
+//        Cb_->copy(Ca_);
+//        epsilon_b_->copy(epsilon_a_.get());
+
+//        Temp->diagonalize(Ua,epsilon_a_);
+//        Temp2->diagonalize(Ub,epsilon_b_);
+//        Temp->copy(Ca_);
+//        Temp2->copy(Cb_);
+//        Ca_->gemm(false,false,1.0,Temp,Ua,0.0);
+//        Cb_->gemm(false,false,1.0,Temp2,Ub,0.0);
+
+
+//        diagonalize_F(Fa_, Ca_, epsilon_a_);
+//        Temp->copy(Fb_);
+//        Temp->transform(Ca_);
+//        for (int h = 0; h < nirrep_; ++h){
+//            int nocc = doccpi_[h];
+//            int nvir = nmopi_[h] - nocc;
+//            if (nocc != 0 and nvir!= 0){
+//                double** Temp_h = Temp->pointer(h);
+//                for (int i = 0; i < nocc; ++i){
+////                    for (int j = 0; j < nvir; ++j){
+////                        Temp_h[i][j + nocc] = Temp_h[j + nocc][i] = 0.0;
+//                    for (int j = doccpi_[h] + soccpi_[h]; j < nmopi_[h]; ++j){
+//                        Temp_h[i][j] = Temp_h[j][i] = 0.0;
+//                    }
+//                }
+//            }
+//        }
+//        Temp->diagonalize(Temp2,epsilon_b_);
+//        Temp->copy(Ca_);
+//        Cb_->gemm(false,false,1.0,Temp,Temp2,0.0);
+
+//        for (int h = 0; h < nirrep_; ++h){
+//            int nso = nsopi_[h];
+//            if (nso != 0){
+//                double** Temp_h = Temp->pointer(h);
+//                for (int p = 0; p < nso; ++p){
+//                    epsilon_b_->set(h,p,Temp_h[p][p]);
+//                }
+//            }
+//        }
+
+
+//        // Transform Fa to the ground state MO basis
+//        Temp->transform(Fb_,state_Cb[0]);
+//        // Grab the occ and vir blocks
+//        for (int h = 0; h < nirrep_; ++h){
+//            int nocc = state_nbetapi[0][h];
+//            int nvir = nmopi_[h] - nocc;
+//            if (nocc != 0){
+//                double** Temp_h = Temp->pointer(h);
+//                double** PoFbPo_h = PoFbPo_->pointer(h);
+//                for (int i = 0; i < nocc; ++i){
+//                    for (int j = 0; j < nocc; ++j){
+//                        PoFbPo_h[i][j] = Temp_h[i][j];
+//                    }
+//                }
+//            }
+//            if (nvir != 0){
+//                double** Temp_h = Temp->pointer(h);
+//                double** PvFbPv_h = PvFbPv_->pointer(h);
+//                for (int i = 0; i < nvir; ++i){
+//                    for (int j = 0; j < nvir; ++j){
+//                        PvFbPv_h[i][j] = Temp_h[i + nocc][j + nocc];
+//                    }
+//                }
+//            }
+//        }
+//        PoFbPo_->diagonalize(Uob,lambda_ob);
+//        PvFbPv_->diagonalize(Uvb,lambda_vb);
+
+//        Temp->zero();
+//        for (int h = 0; h < nirrep_; ++h){
+//            int nocc = state_nbetapi[0][h];
+//            int nvir = nmopi_[h] - nocc;
+//            if (nocc != 0){
+//                double** Temp_h = Temp->pointer(h);
+//                double** Uob_h = Uob->pointer(h);
+//                for (int i = 0; i < nocc; ++i){
+//                    epsilon_b_->set(h,i,lambda_ob->get(h,i));
+//                    for (int j = 0; j < nocc; ++j){
+//                        Temp_h[i][j] = Uob_h[i][j];
+//                    }
+//                }
+//            }
+//            if (nvir != 0){
+//                double** Temp_h = Temp->pointer(h);
+//                double** Uvb_h = Uvb->pointer(h);
+//                for (int i = 0; i < nvir; ++i){
+//                    epsilon_b_->set(h,i + nocc,lambda_vb->get(h,i));
+//                    for (int j = 0; j < nvir; ++j){
+//                        Temp_h[i + nocc][j + nocc] = Uvb_h[i][j];
+//                    }
+//                }
+//            }
+//        }
+//        // Get the new orbitals
+//        Cb_->gemm(false,false,1.0,state_Cb[0],Temp,0.0);
+//        Temp->transform(Fb_,Cb_);
+//        Temp->print();
+
+
+
+//        // Grab the occ and vir blocks
+//        for (int h = 0; h < nirrep_; ++h){
+//            int nocc = new_occupation[h];
+//            int nvir = nmopi_[h] - nocc;
+//            if (nocc != 0){
+//                double** Temp_h = Temp->pointer(h);
+//                double** Fcan_h = Fcan->pointer(h);
+//                for (int i = 0; i < nocc; ++i){
+//                    for (int j = 0; j < nocc; ++j){
+//                        Fcan_h[i][j] = Temp_h[i][j];
+//                    }
+//                }
+//            }
+//        }
+//        Fcan->diagonalize(Ucan,lambda_can);
+//        Temp->zero();
+//        for (int h = 0; h < nirrep_; ++h){
+//            int nocc = new_occupation[h];
+//            int nvir = nmopi_[h] - nocc;
+//            if (nocc != 0){
+//                double** Temp_h = Temp->pointer(h);
+//                double** Ucan_h = Ucan->pointer(h);
+//                for (int i = 0; i < nocc; ++i){
+//                    epsilon_a_->set(h,i,lambda_can->get(h,i));
+//                    for (int j = 0; j < nocc; ++j){
+//                        Temp_h[i][j] = Ucan_h[i][j];
+//                    }
+//                }
+//            }
+//            if (nvir != 0){
+//                double** Temp_h = Temp->pointer(h);
+//                for (int i = 0; i < nvir; ++i){
+//                    Temp_h[i + nocc][i + nocc] = 1.0;
+//                }
+//            }
+//        }
+
+//        Temp->transform(Fa_,Ca_);
+//        // Get the new orbitals
+//        Temp2->copy(Ca_);
+//        Ca_->gemm(false,false,1.0,Temp2,Temp,0.0);
+
+//        Dimension new
+//        SharedVector epsilon_ao_ = SharedVector(factory_->create_vector());
+//        SharedVector epsilon_av_ = SharedVector(factory_->create_vector());
+//        diagonalize_F(PoFaPo_, Temp,  epsilon_ao_);
+//        diagonalize_F(PvFaPv_, Temp2, epsilon_av_);
+//        int homo_h = 0;
+//        int homo_p = 0;
+//        double homo_energy = -1.0e10;
+//        int lumo_h = 0;
+//        int lumo_p = 0;
+//        double lumo_energy = +1.0e10;
+//        for (int h = 0; h < nirrep_; ++h){
+//            int nmo  = nmopi_[h];
+//            int nso  = nsopi_[h];
+//            if (nmo == 0 or nso == 0) continue;
+//            double** Ca_h  = Ca_->pointer(h);
+//            double** Cao_h = Temp->pointer(h);
+//            double** Cav_h = Temp2->pointer(h);
+//            int no = 0;
+//            for (int p = 0; p < nmo; ++p){
+//                if(std::fabs(epsilon_ao_->get(h,p)) > 1.0e-6 ){
+//                    for (int mu = 0; mu < nmo; ++mu){
+//                        Ca_h[mu][no] = Cao_h[mu][p];
+//                    }
+//                    epsilon_a_->set(h,no,epsilon_ao_->get(h,p));
+//                    if (epsilon_ao_->get(h,p) > homo_energy){
+//                        homo_energy = epsilon_ao_->get(h,p);
+//                        homo_h = h;
+//                        homo_p = no;
+//                    }
+//                    no++;
+//                }
+//            }
+//            for (int p = 0; p < nmo; ++p){
+//                if(std::fabs(epsilon_av_->get(h,p)) > 1.0e-6 ){
+//                    for (int mu = 0; mu < nmo; ++mu){
+//                        Ca_h[mu][no] = Cav_h[mu][p];
+//                    }
+//                    epsilon_a_->set(h,no,epsilon_av_->get(h,p));
+//                    if (epsilon_av_->get(h,p) < lumo_energy){
+//                        lumo_energy = epsilon_av_->get(h,p);
+//                        lumo_h = h;
+//                        lumo_p = no;
+//                    }
+//                    no++;
+//                }
+//            }
+//        }
+//        // Shift the HOMO orbital in the occupied space

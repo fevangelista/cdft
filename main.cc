@@ -24,10 +24,16 @@ int read_options(std::string name, Options& options)
         options.add_int("NROOTS", 0);
         /*- Number of excited states per irrep, ROOTS_PER_IRREP has priority over NROOTS -*/
         options.add("ROOTS_PER_IRREP", new ArrayType());
+        /*- Perform a correction of the triplet excitation energies -*/
+        options.add_bool("TRIPLET_CORRECTION", true);
         /*- Select the way the charges are computed -*/
         options.add_str("CONSTRAINT_TYPE","LOWDIN", "LOWDIN");
-        /*- Select the way the charges are computed -*/
+        /*- Select the algorithm to optimize the constraints -*/
         options.add_str("W_ALGORITHM","NEWTON","NEWTON QUADRATIC");
+        /*- Select the excited state method -*/
+        options.add_str("CDFT_EXC_METHOD","CEE-R","CEE CEE-R");
+        /*- Select the excited hole to target -*/
+        options.add_str("CDFT_EXC_HOLE","VALENCE","VALENCE CORE");
         /*- The threshold for the gradient of the constraint -*/
         options.add_double("W_CONVERGENCE",1.0e-5);
 
