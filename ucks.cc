@@ -841,6 +841,10 @@ bool UCKS::test_convergency()
         bool constraint_test = gradW->norm() < gradW_threshold_;
         constraint_optimization();
         if(energy_test and density_test and constraint_test){
+            if(do_excitation){
+                double E_T = compute_triplet_correction();
+                fprintf(outfile,"  Energy corrected for triplet component = %20.12f (%.12f)",2.0 * E_ - E_T,E_T);
+            }
             return true;
         }else{
             return false;
@@ -859,42 +863,117 @@ bool UCKS::test_convergency()
 
 double UCKS::compute_triplet_correction()
 {
-    corresponding_ab_mos();
-    // Modify the occupation numbers to get a triplet
+    // I. Form the corresponding alpha and beta orbitals, this gives us a way
+    // to identify the alpha and beta paired orbitals (singular value ~ 1)
+    // and distinguish them from singly occupied MOs (singular value ~ 0).
+
+    // Form <phi_b|S|phi_a>
+    TempMatrix->gemm(false,false,1.0,S_,Ca_,0.0);
+    TempMatrix2->gemm(true,false,1.0,Cb_,TempMatrix,0.0);
+
+    // Scale it down to the occupied blocks only
+    SharedMatrix Sba = SharedMatrix(new Matrix("Sba",nbetapi_,nalphapi_));
+    nalphapi_.print();
+    nbetapi_.print();
     for (int h = 0; h < nirrep_; ++h) {
-        int na = nalphapi_[h];
-        int nb = nbetapi_[h];
-        nalphapi_[h] = std::max(na,nb);
-        nbetapi_[h]  = std::min(na,nb);
+        int nmo = nmopi_[h];
+        int naocc = nalphapi_[h];
+        int nbocc = nbetapi_[h];
+        double** Sba_h = Sba->pointer(h);
+        double** S_h = TempMatrix2->pointer(h);
+        for (int i = 0; i < nbocc; ++i){
+            for (int j = 0; j < naocc; ++j){
+                Sba_h[i][j] = S_h[i][j];
+            }
+        }
     }
-    fprintf(outfile, "\tNA   [ ");
-    for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nalphapi_[h]);
-    fprintf(outfile, " %4d ]\n", nalphapi_[nirrep_-1]);
-    fprintf(outfile, "\tNB   [ ");
-    for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nbetapi_[h]);
-    fprintf(outfile, " %4d ]\n", nbetapi_[nirrep_-1]);
-    // Compute the density matrices with the new occupation
-    form_D();
-    // Compute the triplet energy from the density matrices
-    double triplet_energy_aa = compute_E();
-    // Modify the occupation numbers to get a triplet
+
+    // SVD <phi_b|S|phi_a>
+    boost::tuple<SharedMatrix, SharedVector, SharedMatrix> UsV = Sba->svd_temps();
+    SharedMatrix U = UsV.get<0>();
+    SharedVector sigma = UsV.get<1>();
+    SharedMatrix V = UsV.get<2>();
+    Sba->svd(U,sigma,V);
+    sigma->print();
+    U->print();
+    V->print();
+
+    // II. Transform the occupied alpha and beta orbitals to the new representation
+    // and compute the energy of the high-spin state.  The singly occupied MOs can
+    // be used to guide the selection of the occupation numbers
+
+    // Transform Ca_ with V^T
+    TempMatrix->identity();
     for (int h = 0; h < nirrep_; ++h) {
-        int na = nalphapi_[h];
-        int nb = nbetapi_[h];
-        nalphapi_[h] = std::max(na,nb);
-        nbetapi_[h]  = std::min(na,nb);
+        int rows = V->rowdim(h);
+        int cols = V->coldim(h);
+        double** V_h = V->pointer(h);
+        double** T_h = TempMatrix->pointer(h);
+        for (int i = 0; i < rows; ++i){
+            for (int j = 0; j < cols; ++j){
+                T_h[i][j] = V_h[i][j];
+            }
+        }
     }
-    fprintf(outfile, "\tNA   [ ");
-    for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nalphapi_[h]);
-    fprintf(outfile, " %4d ]\n", nalphapi_[nirrep_-1]);
-    fprintf(outfile, "\tNB   [ ");
-    for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nbetapi_[h]);
-    fprintf(outfile, " %4d ]\n", nbetapi_[nirrep_-1]);
-    // Compute the density matrices with the new occupation
-    form_D();
-    // Compute the triplet energy from the density matrices
-    double triplet_energy_bb = compute_E();
-    return 0.5 * (triplet_energy_aa + triplet_energy_bb);
+    TempMatrix2->copy(Ca_);
+    Ca_->gemm(false,true,1.0,TempMatrix2,TempMatrix,0.0);
+
+    // Transform Cb_ with U
+    TempMatrix->identity();
+    for (int h = 0; h < nirrep_; ++h) {
+        int rows = U->rowdim(h);
+        int cols = U->coldim(h);
+        double** U_h = U->pointer(h);
+        double** T_h = TempMatrix->pointer(h);
+        for (int i = 0; i < rows; ++i){
+            for (int j = 0; j < cols; ++j){
+                T_h[i][j] = U_h[i][j];
+            }
+        }
+    }
+    TempMatrix2->copy(Cb_);
+    Cb_->gemm(false,false,1.0,TempMatrix2,TempMatrix,0.0);
+
+
+
+    //??? Continu from here ???
+
+    // Modify the occupation numbers to get a triplet
+//    for (int h = 0; h < nirrep_; ++h) {
+//        int na = nalphapi_[h];
+//        int nb = nbetapi_[h];
+//        nalphapi_[h] = std::max(na,nb);
+//        nbetapi_[h]  = std::min(na,nb);
+//    }
+//    fprintf(outfile, "\tNA   [ ");
+//    for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nalphapi_[h]);
+//    fprintf(outfile, " %4d ]\n", nalphapi_[nirrep_-1]);
+//    fprintf(outfile, "\tNB   [ ");
+//    for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nbetapi_[h]);
+//    fprintf(outfile, " %4d ]\n", nbetapi_[nirrep_-1]);
+//    // Compute the density matrices with the new occupation
+//    form_D();
+//    // Compute the triplet energy from the density matrices
+//    double triplet_energy_aa = compute_E();
+//    // Modify the occupation numbers to get a triplet
+//    for (int h = 0; h < nirrep_; ++h) {
+//        int na = nalphapi_[h];
+//        int nb = nbetapi_[h];
+//        nalphapi_[h] = std::max(na,nb);
+//        nbetapi_[h]  = std::min(na,nb);
+//    }
+//    fprintf(outfile, "\tNA   [ ");
+//    for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nalphapi_[h]);
+//    fprintf(outfile, " %4d ]\n", nalphapi_[nirrep_-1]);
+//    fprintf(outfile, "\tNB   [ ");
+//    for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nbetapi_[h]);
+//    fprintf(outfile, " %4d ]\n", nbetapi_[nirrep_-1]);
+//    // Compute the density matrices with the new occupation
+//    form_D();
+//    // Compute the triplet energy from the density matrices
+//    double triplet_energy_bb = compute_E();
+//    return 0.5 * (triplet_energy_aa + triplet_energy_bb);
+    return 0.0;
 }
 
 double UCKS::compute_overlap(int n)
@@ -1009,26 +1088,7 @@ double UCKS::compute_overlap(int n)
 
 void UCKS::corresponding_ab_mos()
 {
-    // Form <phi_b|S|phi_a>
-    TempMatrix->gemm(false,false,1.0,S_,Ca_,0.0);
-    TempMatrix2->gemm(true,false,1.0,Cb_,TempMatrix,0.0);
-    TempMatrix2->print();
-    TempMatrix->zero();
-    for (int h = 0; h < nirrep_; ++h) {
-        int naocc = nalphapi_[h];
-        int nbocc = nbetapi_[h];
-        if (naocc == 0 or nbocc == 0) continue;
-        double** S_occ_h = TempMatrix->pointer(h);
-        double** S_h = TempMatrix2->pointer(h);
-        for (int i = 0; i < naocc; ++i){
-            for (int j = 0; j < nbocc; ++j){
-                S_occ_h[i][j] = S_h[i][j];
-            }
-        }
-    }
-    TempMatrix->print();
-    TempMatrix->svd(svdU,svds,svdV);
-    svds->print();
+
 }
 
 }} // Namespaces

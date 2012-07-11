@@ -99,8 +99,8 @@ PsiReturnType cks(Options& options)
     Communicator::world->sync();
 
     // Set some environment variables
-    Process::environment.globals["SCF TOTAL ENERGY"] = energies[0];
-    Process::environment.globals["CURRENT ENERGY"] = energies[0];
+    Process::environment.globals["SCF TOTAL ENERGY"] = energies.back();
+    Process::environment.globals["CURRENT ENERGY"] = energies.back();
     Process::environment.globals["CURRENT REFERENCE ENERGY"] = energies[0];
 
     // Shut down psi.
