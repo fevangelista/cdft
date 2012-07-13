@@ -36,6 +36,9 @@ int read_options(std::string name, Options& options)
         options.add_str("CDFT_EXC_HOLE","VALENCE","VALENCE CORE");
         /*- The threshold for the gradient of the constraint -*/
         options.add_double("W_CONVERGENCE",1.0e-5);
+        /*- The Lagrange multiplier for the SUHF formalism -*/
+        options.add_double("CDFT_SUHF_LAMBDA",0.0);
+
 
         // Expert options
         /*- Apply a fixed Lagrange multiplier -*/

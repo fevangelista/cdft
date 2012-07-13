@@ -268,6 +268,62 @@ void UCKS::form_F()
     Fb_->copy(H_);
     Fb_->add(Gb_);
 
+
+    if(do_roks){
+        moFa_->transform(Fa_, Ca_);
+        moFb_->transform(Fb_, Ca_);
+        /*
+        * Fo = open-shell fock matrix = 0.5 Fa
+        * Fc = closed-shell fock matrix = 0.5 (Fa + Fb)
+        *
+        * Therefore
+        *
+        * 2(Fc-Fo) = Fb
+        * 2Fo = Fa
+        *
+        * Form the effective Fock matrix, too
+        * The effective Fock matrix has the following structure
+        *          |  closed     open    virtual
+        *  ----------------------------------------
+        *  closed  |    Fc     2(Fc-Fo)    Fc
+        *  open    | 2(Fc-Fo)     Fc      2Fo
+        *  virtual |    Fc       2Fo       Fc
+        */
+        Feff_->copy(moFa_);
+        Feff_->add(moFb_);
+        Feff_->scale(0.5);
+        for (int h = 0; h < nirrep_; ++h) {
+            for (int i = doccpi_[h]; i < doccpi_[h] + soccpi_[h]; ++i) {
+                // Set the open/closed portion
+                for (int j = 0; j < doccpi_[h]; ++j) {
+                    double val = moFb_->get(h, i, j);
+                    Feff_->set(h, i, j, val);
+                    Feff_->set(h, j, i, val);
+                }
+                // Set the open/virtual portion
+                for (int j = doccpi_[h] + soccpi_[h]; j < nmopi_[h]; ++j) {
+                    double val = moFa_->get(h, i, j);
+                    Feff_->set(h, i, j, val);
+                    Feff_->set(h, j, i, val);
+                }
+            }
+        }
+
+        // Form the orthogonalized SO basis Feff matrix, for use in DIIS
+        soFeff_->copy(Feff_);
+        soFeff_->back_transform(Ct_);
+    }
+
+
+//    // SUHF Contributions
+//    double suhf_weight = std::pow(0.5,std::max(10.0 - iteration_,1.0));
+//    TempMatrix->transform(Db_,S_);
+//    TempMatrix->scale(- 4.0 * suhf_weight * KS::options_.get_double("CDFT_SUHF_LAMBDA"));
+//    Fa_->add(TempMatrix);
+//    TempMatrix->transform(Da_,S_);
+//    TempMatrix->scale(- 4.0 * suhf_weight * KS::options_.get_double("CDFT_SUHF_LAMBDA"));
+//    Fb_->add(TempMatrix);
+
     gradient_of_W();
 
     if (debug_) {
@@ -916,7 +972,7 @@ double UCKS::compute_triplet_correction()
         }
     }
     TempMatrix2->copy(Ca_);
-    Ca_->gemm(false,true,1.0,TempMatrix2,TempMatrix,0.0);
+//    Ca_->gemm(false,true,1.0,TempMatrix2,TempMatrix,0.0);
 
     // Transform Cb_ with U
     TempMatrix->identity();
@@ -932,48 +988,67 @@ double UCKS::compute_triplet_correction()
         }
     }
     TempMatrix2->copy(Cb_);
-    Cb_->gemm(false,false,1.0,TempMatrix2,TempMatrix,0.0);
+//    Cb_->gemm(false,false,1.0,TempMatrix2,TempMatrix,0.0);
 
+    const double paired_threshold = 0.75;
+    for (int h = 0; h < nirrep_; ++h){
+        // Number of electrons in irrep h
+        int nels = nalphapi_[h] + nbetapi_[h];
+        int npairs = 0;
+        // Find the number of paired ones
+        for (int p = 0; p < sigma->dim(h); ++p){
+            if(std::fabs(sigma->get(h,p)) > paired_threshold){
+                npairs += 1;
+            }else if(std::fabs(sigma->get(h,p)) < 1.0 - paired_threshold){
+            }else{
+                fprintf(outfile,"\n  Warning: the singular value for corrisponding MO (%d,%d) is ambiguous %f",h,p,sigma->get(h,p));
+            }
+        }
+        nalphapi_[h] = nels - npairs;
+        nbetapi_[h] = npairs;
+    }
 
+    int old_socc[8];
+    int old_docc[8];
+    for(int h = 0; h < nirrep_; ++h){
+        old_socc[h] = soccpi_[h];
+        old_docc[h] = doccpi_[h];
+    }
 
-    //??? Continu from here ???
+    for (int h = 0; h < nirrep_; ++h) {
+        soccpi_[h] = std::abs(nalphapi_[h] - nbetapi_[h]);
+        doccpi_[h] = std::min(nalphapi_[h] , nbetapi_[h]);
+    }
 
-    // Modify the occupation numbers to get a triplet
-//    for (int h = 0; h < nirrep_; ++h) {
-//        int na = nalphapi_[h];
-//        int nb = nbetapi_[h];
-//        nalphapi_[h] = std::max(na,nb);
-//        nbetapi_[h]  = std::min(na,nb);
-//    }
-//    fprintf(outfile, "\tNA   [ ");
-//    for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nalphapi_[h]);
-//    fprintf(outfile, " %4d ]\n", nalphapi_[nirrep_-1]);
-//    fprintf(outfile, "\tNB   [ ");
-//    for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nbetapi_[h]);
-//    fprintf(outfile, " %4d ]\n", nbetapi_[nirrep_-1]);
-//    // Compute the density matrices with the new occupation
-//    form_D();
-//    // Compute the triplet energy from the density matrices
-//    double triplet_energy_aa = compute_E();
-//    // Modify the occupation numbers to get a triplet
-//    for (int h = 0; h < nirrep_; ++h) {
-//        int na = nalphapi_[h];
-//        int nb = nbetapi_[h];
-//        nalphapi_[h] = std::max(na,nb);
-//        nbetapi_[h]  = std::min(na,nb);
-//    }
-//    fprintf(outfile, "\tNA   [ ");
-//    for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nalphapi_[h]);
-//    fprintf(outfile, " %4d ]\n", nalphapi_[nirrep_-1]);
-//    fprintf(outfile, "\tNB   [ ");
-//    for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nbetapi_[h]);
-//    fprintf(outfile, " %4d ]\n", nbetapi_[nirrep_-1]);
-//    // Compute the density matrices with the new occupation
-//    form_D();
-//    // Compute the triplet energy from the density matrices
-//    double triplet_energy_bb = compute_E();
-//    return 0.5 * (triplet_energy_aa + triplet_energy_bb);
-    return 0.0;
+    bool occ_changed = false;
+    for(int h = 0; h < nirrep_; ++h){
+        if( old_socc[h] != soccpi_[h] || old_docc[h] != doccpi_[h]){
+            occ_changed = true;
+            break;
+        }
+    }
+
+    // If print > 2 (diagnostics), print always
+    if((print_ > 2 || (print_ && occ_changed)) && iteration_ > 0){
+        if (Communicator::world->me() == 0)
+            fprintf(outfile, "\tOccupation by irrep:\n");
+        print_occupation();
+    }
+
+    fprintf(outfile, "\tNA   [ ");
+    for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nalphapi_[h]);
+    fprintf(outfile, " %4d ]\n", nalphapi_[nirrep_-1]);
+    fprintf(outfile, "\tNB   [ ");
+    for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nbetapi_[h]);
+    fprintf(outfile, " %4d ]\n", nbetapi_[nirrep_-1]);
+
+    // Compute the density matrices with the new occupation
+    form_D();
+
+    // Compute the triplet energy from the density matrices
+    double triplet_energy = compute_E();
+
+    return triplet_energy;
 }
 
 double UCKS::compute_overlap(int n)
