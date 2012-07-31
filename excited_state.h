@@ -12,6 +12,8 @@ public:
     ExcitedState();
     void add_hole(int sym,SharedVector hole,bool alpha);
     void add_particle(int sym,SharedVector particle,bool alpha);
+    SharedVector get_hole(int n,bool alpha);
+    SharedVector get_particle(int n,bool alpha);
     std::vector<int> aholepi() {return aholepi_;}
     std::vector<int> apartpi() {return apartpi_;}
 protected:

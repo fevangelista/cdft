@@ -4,10 +4,41 @@
 #include <libscf_solver/ks.h>
 #include <constraint.h>
 #include <excited_state.h>
+#include <determinant.h>
 
 namespace psi{
 class Options;
 namespace scf{
+
+class ERIComputer
+{
+public:
+    ERIComputer(double* Ci,double* Cj,double* Ck,double* Cl) {
+        integral = 0.0;
+        Ci_ = Ci;
+        Cj_ = Cj;
+        Ck_ = Ck;
+        Cl_ = Cl;
+    }
+    bool k_required() const {return true;}
+    void initialize(){}
+    void finalize(){}
+    void operator()(boost::shared_ptr<PKIntegrals> pk_integrals) {}
+    void operator() (int pabs, int qabs, int rabs, int sabs,
+                     int pirrep, int pso,
+                     int qirrep, int qso,
+                     int rirrep, int rso,
+                     int sirrep, int sso,
+                     double value)
+    {
+        integral += value * Ci_[pabs] * Cj_[qabs] * Ck_[rabs] * Cl_[sabs];
+    }
+    double integral;
+    double* Ci_;
+    double* Cj_;
+    double* Ck_;
+    double* Cl_;
+};
 
 /// A class for unrestricted constrained Kohn-Sham theory
 class UCKS : public UKS {
@@ -22,6 +53,14 @@ protected:
     // Excitation energy
     /// Compute an excited state as an optimal singly excited state
     bool do_excitation;
+    /// Find the optimal hole?
+    bool do_constrained_hole;
+    /// Find the optimal particle?
+    bool do_constrained_part;
+    /// Relax the spectator orbitals?
+    bool do_relax_spectators;
+    /// Ground state energy
+    double ground_state_energy;
     /// Number of occupied orbitals to project out
     int nexclude_occ;
     /// Number of virtual orbitals to project out
@@ -156,6 +195,8 @@ protected:
     /// Do ROKS?
     bool do_roks;
 
+    //double determinant_overlap(Determinant A,Determinant B);
+    //double determinant_hamiltonian(Determinant A,Determinant B)
 
     // Overloaded UKS function
     /// Form the Fock matrix augmented with the constraints and/or projected

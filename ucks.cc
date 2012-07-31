@@ -1,5 +1,6 @@
 
 #include <ucks.h>
+#include <physconst.h>
 #include <libmints/view.h>
 #include <libmints/mints.h>
 #include <libfock/apps.h>
@@ -11,24 +12,45 @@
 #include <libqt/qt.h>
 #include "boost/tuple/tuple.hpp"
 #include "boost/tuple/tuple_comparison.hpp"
+#include <libiwl/iwl.hpp>
+#include <psifiles.h>
+
+
+
 
 using namespace psi;
 
 namespace psi{ namespace scf{
 
 UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio)
-    : UKS(options, psio), optimize_Vc(false), gradW_threshold_(1.0e-9),nW_opt(0)
+: UKS(options, psio),
+  do_excitation(false),
+  do_constrained_hole(false),
+  do_constrained_part(false),
+  do_relax_spectators(false),
+  optimize_Vc(false),
+  gradW_threshold_(1.0e-9),
+  nW_opt(0),
+  ground_state_energy(0.0)
 {
-    do_excitation = false;
     nexclude_occ = 0;
     nexclude_vir = 0;
     init();
 }
 
 UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<UCKS> ref_scf)
-    : UKS(options, psio), optimize_Vc(false), gradW_threshold_(1.0e-9),nW_opt(0), ref_scf_(ref_scf)
+: UKS(options, psio),
+  do_excitation(true),
+  do_constrained_hole(false),
+  do_constrained_part(false),
+  do_relax_spectators(false),
+  optimize_Vc(false),
+  gradW_threshold_(1.0e-9),
+  nW_opt(0),
+  ground_state_energy(0.0),
+  ref_scf_(ref_scf)
 {
-    do_excitation = true;
+    ground_state_energy = ref_scf->E_;
     nexclude_occ = ref_scf->nexclude_occ;
     nexclude_vir = ref_scf->nexclude_vir;
     init();
@@ -97,6 +119,19 @@ void UCKS::init()
 
     if(do_excitation){
         fprintf(outfile,"  Saving the reference orbitals for an excited state computation\n");
+        if(KS::options_.get_str("CDFT_EXC_METHOD") == "CP"){
+            do_constrained_hole = false;
+            do_constrained_part = true;
+            do_relax_spectators = true;
+        }else if(KS::options_.get_str("CDFT_EXC_METHOD") == "CHP"){
+            do_constrained_hole = true;
+            do_constrained_part = true;
+            do_relax_spectators = true;
+        }else if(KS::options_.get_str("CDFT_EXC_METHOD") == "CHP-F"){
+            do_constrained_hole = true;
+            do_constrained_part = true;
+            do_relax_spectators = false;
+        }
 
         Dimension nocc_alphapi = ref_scf_->nalphapi_;
         Dimension nvir_alphapi = ref_scf_->nmopi_ - nocc_alphapi;
@@ -269,50 +304,50 @@ void UCKS::form_F()
     Fb_->add(Gb_);
 
 
-    if(do_roks){
-        moFa_->transform(Fa_, Ca_);
-        moFb_->transform(Fb_, Ca_);
-        /*
-        * Fo = open-shell fock matrix = 0.5 Fa
-        * Fc = closed-shell fock matrix = 0.5 (Fa + Fb)
-        *
-        * Therefore
-        *
-        * 2(Fc-Fo) = Fb
-        * 2Fo = Fa
-        *
-        * Form the effective Fock matrix, too
-        * The effective Fock matrix has the following structure
-        *          |  closed     open    virtual
-        *  ----------------------------------------
-        *  closed  |    Fc     2(Fc-Fo)    Fc
-        *  open    | 2(Fc-Fo)     Fc      2Fo
-        *  virtual |    Fc       2Fo       Fc
-        */
-        Feff_->copy(moFa_);
-        Feff_->add(moFb_);
-        Feff_->scale(0.5);
-        for (int h = 0; h < nirrep_; ++h) {
-            for (int i = doccpi_[h]; i < doccpi_[h] + soccpi_[h]; ++i) {
-                // Set the open/closed portion
-                for (int j = 0; j < doccpi_[h]; ++j) {
-                    double val = moFb_->get(h, i, j);
-                    Feff_->set(h, i, j, val);
-                    Feff_->set(h, j, i, val);
-                }
-                // Set the open/virtual portion
-                for (int j = doccpi_[h] + soccpi_[h]; j < nmopi_[h]; ++j) {
-                    double val = moFa_->get(h, i, j);
-                    Feff_->set(h, i, j, val);
-                    Feff_->set(h, j, i, val);
-                }
-            }
-        }
+//    if(do_roks){
+//        moFa_->transform(Fa_, Ca_);
+//        moFb_->transform(Fb_, Ca_);
+//        /*
+//        * Fo = open-shell fock matrix = 0.5 Fa
+//        * Fc = closed-shell fock matrix = 0.5 (Fa + Fb)
+//        *
+//        * Therefore
+//        *
+//        * 2(Fc-Fo) = Fb
+//        * 2Fo = Fa
+//        *
+//        * Form the effective Fock matrix, too
+//        * The effective Fock matrix has the following structure
+//        *          |  closed     open    virtual
+//        *  ----------------------------------------
+//        *  closed  |    Fc     2(Fc-Fo)    Fc
+//        *  open    | 2(Fc-Fo)     Fc      2Fo
+//        *  virtual |    Fc       2Fo       Fc
+//        */
+//        Feff_->copy(moFa_);
+//        Feff_->add(moFb_);
+//        Feff_->scale(0.5);
+//        for (int h = 0; h < nirrep_; ++h) {
+//            for (int i = doccpi_[h]; i < doccpi_[h] + soccpi_[h]; ++i) {
+//                // Set the open/closed portion
+//                for (int j = 0; j < doccpi_[h]; ++j) {
+//                    double val = moFb_->get(h, i, j);
+//                    Feff_->set(h, i, j, val);
+//                    Feff_->set(h, j, i, val);
+//                }
+//                // Set the open/virtual portion
+//                for (int j = doccpi_[h] + soccpi_[h]; j < nmopi_[h]; ++j) {
+//                    double val = moFa_->get(h, i, j);
+//                    Feff_->set(h, i, j, val);
+//                    Feff_->set(h, j, i, val);
+//                }
+//            }
+//        }
 
-        // Form the orthogonalized SO basis Feff matrix, for use in DIIS
-        soFeff_->copy(Feff_);
-        soFeff_->back_transform(Ct_);
-    }
+//        // Form the orthogonalized SO basis Feff matrix, for use in DIIS
+//        soFeff_->copy(Feff_);
+//        soFeff_->back_transform(Ct_);
+//    }
 
 
 //    // SUHF Contributions
@@ -343,6 +378,13 @@ void UCKS::form_C()
         // Transform Fa to the ground state MO basis
         TempMatrix->transform(Fa_,state_Ca[0]);
 
+        // Set the orbital transformation matrices for the occ and vir blocks
+        // equal to the identity so that if we decide to optimize only the hole
+        // or the particle all is ok
+        Uo->identity();
+        Uv->identity();
+        boost::tuple<double,int,int> hole;
+        boost::tuple<double,int,int> particle;
         // Grab the occ and vir blocks
         // |--------|--------|
         // |        |        |
@@ -353,60 +395,70 @@ void UCKS::form_C()
         // |        | PvFaPv |
         // |        |        |
         // |--------|--------|
-        for (int h = 0; h < nirrep_; ++h){
-            int nocc = state_nalphapi[0][h];
-            int nvir = nmopi_[h] - nocc;
-            if (nocc != 0){
-                double** Temp_h = TempMatrix->pointer(h);
-                double** PoFaPo_h = PoFaPo_->pointer(h);
+        if(do_constrained_hole){
+            for (int h = 0; h < nirrep_; ++h){
+                int nocc = state_nalphapi[0][h];
+                if (nocc != 0){
+                    double** Temp_h = TempMatrix->pointer(h);
+                    double** PoFaPo_h = PoFaPo_->pointer(h);
+                    for (int i = 0; i < nocc; ++i){
+                        for (int j = 0; j < nocc; ++j){
+                            PoFaPo_h[i][j] = Temp_h[i][j];
+                        }
+                    }
+                }
+            }
+            PoFaPo_->diagonalize(Uo,lambda_o);
+            // Sort the orbitals according to the eigenvalues of PoFaPo
+            std::vector<boost::tuple<double,int,int> > sorted_occ;
+            for (int h = 0; h < nirrep_; ++h){
+                int nocc = state_nalphapi[0][h];
                 for (int i = 0; i < nocc; ++i){
-                    for (int j = 0; j < nocc; ++j){
-                        PoFaPo_h[i][j] = Temp_h[i][j];
+                    sorted_occ.push_back(boost::make_tuple(lambda_o->get(h,i),h,i));
+                }
+            }
+            std::sort(sorted_occ.begin(),sorted_occ.end());
+            // Extract the hole alpha orbital according to an energy criteria (this needs a generalization)
+            if (KS::options_.get_str("CDFT_EXC_HOLE") == "VALENCE"){
+                // For valence excitations select the highest lying orbital (HOMO-like)
+                hole = sorted_occ.back();
+            }else if(KS::options_.get_str("CDFT_EXC_HOLE") == "CORE"){
+                // For core excitations select the lowest lying orbital (1s-like)
+                hole = sorted_occ.front();
+            }
+
+        }
+
+        if(do_constrained_part){
+            for (int h = 0; h < nirrep_; ++h){
+                int nocc = state_nalphapi[0][h];
+                int nvir = nmopi_[h] - nocc;
+                if (nvir != 0){
+                    double** Temp_h = TempMatrix->pointer(h);
+                    double** PvFaPv_h = PvFaPv_->pointer(h);
+                    for (int i = 0; i < nvir; ++i){
+                        for (int j = 0; j < nvir; ++j){
+                            PvFaPv_h[i][j] = Temp_h[i + nocc][j + nocc];
+                        }
                     }
                 }
             }
-            if (nvir != 0){
-                double** Temp_h = TempMatrix->pointer(h);
-                double** PvFaPv_h = PvFaPv_->pointer(h);
+            PvFaPv_->diagonalize(Uv,lambda_v);
+            // Sort the orbitals according to the eigenvalues of PvFaPv
+            std::vector<boost::tuple<double,int,int> > sorted_vir;
+            for (int h = 0; h < nirrep_; ++h){
+                int nocc = state_nalphapi[0][h];
+                int nvir = nmopi_[h] - nocc;
                 for (int i = 0; i < nvir; ++i){
-                    for (int j = 0; j < nvir; ++j){
-                        PvFaPv_h[i][j] = Temp_h[i + nocc][j + nocc];
-                    }
+                    sorted_vir.push_back(boost::make_tuple(lambda_v->get(h,i),h,i + nocc));  // N.B. shifted to full indexing
                 }
             }
+            std::sort(sorted_vir.begin(),sorted_vir.end());
+            // In the case of particle, we assume that we are always interested in the lowest lying orbitals
+            particle = sorted_vir.front();
         }
-        PoFaPo_->diagonalize(Uo,lambda_o);
-        PvFaPv_->diagonalize(Uv,lambda_v);
 
-        // Sort the orbitals according to the eigenvalues of PoFaPo and PvFaPv
-        std::vector<boost::tuple<double,int,int> > sorted_occ;
-        std::vector<boost::tuple<double,int,int> > sorted_vir;
-        for (int h = 0; h < nirrep_; ++h){
-            int nocc = state_nalphapi[0][h];
-            int nvir = nmopi_[h] - nocc;
-            for (int i = 0; i < nocc; ++i){
-                sorted_occ.push_back(boost::make_tuple(lambda_o->get(h,i),h,i));
-            }
-            for (int i = 0; i < nvir; ++i){
-                sorted_vir.push_back(boost::make_tuple(lambda_v->get(h,i),h,i + nocc));  // N.B. shifted to full indexing
-            }
-        }
-        std::sort(sorted_occ.begin(),sorted_occ.end());
-        std::sort(sorted_vir.begin(),sorted_vir.end());
-
-        // Extract the hole and particle alpha orbitals according to an energy criteria (this needs a generalization)
-        boost::tuple<double,int,int> hole;
-        if (KS::options_.get_str("CDFT_EXC_HOLE") == "VALENCE"){
-            // For valence excitations select the highest lying orbital (HOMO-like)
-            hole = sorted_occ.back();
-        }else if(KS::options_.get_str("CDFT_EXC_HOLE") == "CORE"){
-            // For core excitations select the lowest lying orbital (1s-like)
-            hole = sorted_occ.front();
-        }
-        // In the case of particle, we assume that we are always interested in the lowest lying orbitals
-        boost::tuple<double,int,int> particle = sorted_vir.front();
-
-        // Form the matrix that diagonalizes the PoFaPo and PvFaPv blocks
+        // Form the transformation matrix that diagonalizes the PoFaPo and PvFaPv blocks
         // |----|----|
         // | Uo | 0  |
         // |----|----|
@@ -440,21 +492,29 @@ void UCKS::form_C()
 
         // Get the excited state orbitals: Ca(ex) = Ca(gs) * (Uo | Uv)
         Ca_->gemm(false,false,1.0,state_Ca[0],TempMatrix,0.0);
-        fprintf(outfile,"   hole/particle pair :(irrep = %d,mo = %d,energy = %.6f) -> (irrep = %d,mo = %d,energy = %.6f)\n",
-                        hole.get<1>(),hole.get<2>(),hole.get<0>(),
-                        particle.get<1>(),particle.get<2>(),particle.get<0>());
+        if(do_constrained_hole and do_constrained_part){
+            fprintf(outfile,"   constrained hole/particle pair :(irrep = %d,mo = %d,energy = %.6f) -> (irrep = %d,mo = %d,energy = %.6f)\n",
+                    hole.get<1>(),hole.get<2>(),hole.get<0>(),
+                    particle.get<1>(),particle.get<2>(),particle.get<0>());
+        }else if(not do_constrained_hole and do_constrained_part){
+            fprintf(outfile,"   constrained particle :(irrep = %d,mo = %d,energy = %.6f)\n",
+                    particle.get<1>(),particle.get<2>(),particle.get<0>());
+        }
 
         // Save the hole and particle information and at the same time zero the columns in Ca_
         current_excited_state = SharedExcitedState(new ExcitedState);
-        SharedVector hole_mo = Ca_->get_column(hole.get<1>(),hole.get<2>());
-        Ca_->zero_column(hole.get<1>(),hole.get<2>());
-        epsilon_a_->set(hole.get<1>(),hole.get<2>(),0.0);
-        SharedVector particle_mo = Ca_->get_column(particle.get<1>(),particle.get<2>());
-        Ca_->zero_column(particle.get<1>(),particle.get<2>());
-        epsilon_a_->set(particle.get<1>(),particle.get<2>(),0.0);
-        current_excited_state->add_hole(hole.get<1>(),hole_mo,true);
-        current_excited_state->add_particle(particle.get<1>(),particle_mo,true);
-
+        if(do_constrained_hole){
+            SharedVector hole_mo = Ca_->get_column(hole.get<1>(),hole.get<2>());
+            Ca_->zero_column(hole.get<1>(),hole.get<2>());
+            epsilon_a_->set(hole.get<1>(),hole.get<2>(),0.0);
+            current_excited_state->add_hole(hole.get<1>(),hole_mo,true);
+        }
+        if(do_constrained_part){
+            SharedVector particle_mo = Ca_->get_column(particle.get<1>(),particle.get<2>());
+            Ca_->zero_column(particle.get<1>(),particle.get<2>());
+            epsilon_a_->set(particle.get<1>(),particle.get<2>(),0.0);
+            current_excited_state->add_particle(particle.get<1>(),particle_mo,true);
+        }
 
         // Adjust the occupation (nalphapi_,nbetapi_)
         for (int h = 0; h < nirrep_; ++h){
@@ -492,7 +552,7 @@ void UCKS::form_C()
         }
 
         // Optionally, include relaxation effects
-        if(KS::options_.get_str("CDFT_EXC_METHOD") == "CEE-R"){
+        if(do_relax_spectators){
             // Transform Fa to the excited state MO basis, this includes the hole and particle states
             TempMatrix->transform(Fa_,Ca_);
 
@@ -506,7 +566,7 @@ void UCKS::form_C()
             // |       0|0       |
             // |       0|0       |
             // |--------|--------|
-            {
+            if(do_constrained_hole){
                 // Zero the hole couplings
                 int h = hole.get<1>();
                 int i = hole.get<2>();
@@ -521,7 +581,7 @@ void UCKS::form_C()
                 }
 
             }
-            {
+            if(do_constrained_part){
                 // Zero the LUMO couplings
                 int h = particle.get<1>();
                 int i = particle.get<2>();
@@ -569,12 +629,16 @@ void UCKS::form_C()
 
             }
         }
-        // Place the hole orbital in the last MO of its irrep
-        TempMatrix->set_column(hole.get<1>(),nmopi_[hole.get<1>()]-1,hole_mo);
-        TempVector->set(hole.get<1>(),nmopi_[hole.get<1>()],hole.get<0>());
-        // Place the particle orbital in the first MO of its irrep
-        TempMatrix->set_column(particle.get<1>(),0,particle_mo);
-        TempVector->set(particle.get<1>(),0,particle.get<0>());
+        if(do_constrained_hole){
+            // Place the hole orbital in the last MO of its irrep
+            TempMatrix->set_column(hole.get<1>(),nmopi_[hole.get<1>()]-1,current_excited_state->get_hole(0,true));
+            TempVector->set(hole.get<1>(),nmopi_[hole.get<1>()]-1,hole.get<0>());
+        }
+        if(do_constrained_part){
+            // Place the particle orbital in the first MO of its irrep
+            TempMatrix->set_column(particle.get<1>(),0,current_excited_state->get_particle(0,true));
+            TempVector->set(particle.get<1>(),0,particle.get<0>());
+        }
         Ca_->copy(TempMatrix);
         epsilon_a_->copy(TempVector.get());
 
@@ -899,7 +963,12 @@ bool UCKS::test_convergency()
         if(energy_test and density_test and constraint_test){
             if(do_excitation){
                 double E_T = compute_triplet_correction();
-                fprintf(outfile,"  Energy corrected for triplet component = %20.12f (%.12f)",2.0 * E_ - E_T,E_T);
+                double exc_energy = E_ - E_T - ground_state_energy;
+                fprintf(outfile,"  Excited triplet state : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+                        exc_energy,exc_energy * _hartree2ev, exc_energy * _hartree2wavenumbers);
+                exc_energy = E_ + E_T - ground_state_energy;
+                fprintf(outfile,"  Excited singlet state : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+                        exc_energy,exc_energy * _hartree2ev, exc_energy * _hartree2wavenumbers);
             }
             return true;
         }else{
@@ -958,7 +1027,7 @@ double UCKS::compute_triplet_correction()
     // and compute the energy of the high-spin state.  The singly occupied MOs can
     // be used to guide the selection of the occupation numbers
 
-    // Transform Ca_ with V^T
+    // Transform Ca_ with V (need to transpose V since svd returns V^T)
     TempMatrix->identity();
     for (int h = 0; h < nirrep_; ++h) {
         int rows = V->rowdim(h);
@@ -972,7 +1041,7 @@ double UCKS::compute_triplet_correction()
         }
     }
     TempMatrix2->copy(Ca_);
-//    Ca_->gemm(false,true,1.0,TempMatrix2,TempMatrix,0.0);
+    Ca_->gemm(false,true,1.0,TempMatrix2,TempMatrix,0.0);
 
     // Transform Cb_ with U
     TempMatrix->identity();
@@ -988,67 +1057,122 @@ double UCKS::compute_triplet_correction()
         }
     }
     TempMatrix2->copy(Cb_);
-//    Cb_->gemm(false,false,1.0,TempMatrix2,TempMatrix,0.0);
+    Cb_->gemm(false,false,1.0,TempMatrix2,TempMatrix,0.0);
 
-    const double paired_threshold = 0.75;
+    std::vector<std::pair<int,int> > noncoincidences;
+    double noncoincidence_threshold = 1.0e-5;
+    double Stilde = 1.0;
+    // Compute the number of noncoincidences
     for (int h = 0; h < nirrep_; ++h){
-        // Number of electrons in irrep h
-        int nels = nalphapi_[h] + nbetapi_[h];
-        int npairs = 0;
-        // Find the number of paired ones
         for (int p = 0; p < sigma->dim(h); ++p){
-            if(std::fabs(sigma->get(h,p)) > paired_threshold){
-                npairs += 1;
-            }else if(std::fabs(sigma->get(h,p)) < 1.0 - paired_threshold){
+            if(std::fabs(sigma->get(h,p)) >= noncoincidence_threshold){
+                Stilde *= sigma->get(h,p);
             }else{
-                fprintf(outfile,"\n  Warning: the singular value for corrisponding MO (%d,%d) is ambiguous %f",h,p,sigma->get(h,p));
+                noncoincidences.push_back(std::make_pair(h,p));
             }
         }
-        nalphapi_[h] = nels - npairs;
-        nbetapi_[h] = npairs;
+    }
+    int num_noncoincidences = static_cast<int>(noncoincidences.size());
+    for (int k = 0; k < num_noncoincidences; ++k){
+        int i_h = noncoincidences[k].first;
+        int i_mo = noncoincidences[k].second;
+        fprintf(outfile,"  Found a noncoincidence: irrep %d mo %d\n",i_h,i_mo);
+    }
+    fprintf(outfile,"  Stilde = %.6f\n",Stilde);
+    double overlap = 1.0;
+    if(num_noncoincidences == 0){
+        throw FeatureNotImplemented("CKS", "Overlap in the case of zero noncoincidences", __FILE__, __LINE__);
     }
 
-    int old_socc[8];
-    int old_docc[8];
-    for(int h = 0; h < nirrep_; ++h){
-        old_socc[h] = soccpi_[h];
-        old_docc[h] = doccpi_[h];
-    }
+    int i_h = noncoincidences[0].first;
+    int i_mo = noncoincidences[0].second;
+    Dimension nnonc(1,"");
+    nnonc[0] = 1;
+    SharedMatrix Cnca(new Matrix("Cnca", nsopi_, nnonc));
+    Cnca->set_column(0,0,Ca_->get_column(i_h,i_mo));
+    SharedMatrix Cncb(new Matrix("Cncb", nsopi_, nnonc));
+    Cncb->set_column(0,0,Cb_->get_column(i_h,i_mo));
+    Cnca->print();
+    Cncb->print();
 
-    for (int h = 0; h < nirrep_; ++h) {
-        soccpi_[h] = std::abs(nalphapi_[h] - nbetapi_[h]);
-        doccpi_[h] = std::min(nalphapi_[h] , nbetapi_[h]);
-    }
+    boost::shared_ptr<JK> jk = JK::build_JK();
+    jk->initialize();
+    std::vector<SharedMatrix>& C_left = jk->C_left();
+    C_left.clear();
+    C_left.push_back(Cncb);
+    std::vector<SharedMatrix>& C_right = jk->C_right();
+    C_right.clear();
+    C_right.push_back(Cnca);
+    jk->compute();
+    SharedMatrix Jnew = jk->J()[0];
 
-    bool occ_changed = false;
-    for(int h = 0; h < nirrep_; ++h){
-        if( old_socc[h] != soccpi_[h] || old_docc[h] != doccpi_[h]){
-            occ_changed = true;
-            break;
+    double coupling = 0.0;
+    for (int m = 0; m < nsopi_[0]; ++m){
+        for (int n = 0; n < nsopi_[0]; ++n){
+            double Dvalue = Cncb->get(0,m) * Cnca->get(0,n);
+            double Jvalue = Jnew->get(m,n);
+            coupling += Dvalue * Jvalue;
         }
     }
+    fprintf(outfile,"  Matrix element from libfock = %20.12f\n",coupling);
 
-    // If print > 2 (diagnostics), print always
-    if((print_ > 2 || (print_ && occ_changed)) && iteration_ > 0){
-        if (Communicator::world->me() == 0)
-            fprintf(outfile, "\tOccupation by irrep:\n");
-        print_occupation();
+    coupling *= Stilde * Stilde;
+
+    jk->finalize();
+
+    int maxi4 = INDEX4(nsopi_[0]+1,nsopi_[0]+1,nsopi_[0]+1,nsopi_[0]+1)+nsopi_[0]+1;
+    double* integrals = new double[maxi4];
+    for (int l = 0; l < maxi4; ++l){
+        integrals[l] = 0.0;
     }
 
-    fprintf(outfile, "\tNA   [ ");
-    for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nalphapi_[h]);
-    fprintf(outfile, " %4d ]\n", nalphapi_[nirrep_-1]);
-    fprintf(outfile, "\tNB   [ ");
-    for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nbetapi_[h]);
-    fprintf(outfile, " %4d ]\n", nbetapi_[nirrep_-1]);
+    IWL *iwl = new IWL(KS::psio_.get(), PSIF_SO_TEI, integral_threshold_, 1, 1);
+    Label *lblptr = iwl->labels();
+    Value *valptr = iwl->values();
+    int labelIndex, pabs, qabs, rabs, sabs, prel, qrel, rrel, srel, psym, qsym, rsym, ssym;
+    double value;
+    bool lastBuffer;
+    do{
+        lastBuffer = iwl->last_buffer();
+        for(int index = 0; index < iwl->buffer_count(); ++index){
+            labelIndex = 4*index;
+            pabs  = abs((int) lblptr[labelIndex++]);
+            qabs  = (int) lblptr[labelIndex++];
+            rabs  = (int) lblptr[labelIndex++];
+            sabs  = (int) lblptr[labelIndex++];
+            prel  = so2index_[pabs];
+            qrel  = so2index_[qabs];
+            rrel  = so2index_[rabs];
+            srel  = so2index_[sabs];
+            psym  = so2symblk_[pabs];
+            qsym  = so2symblk_[qabs];
+            rsym  = so2symblk_[rabs];
+            ssym  = so2symblk_[sabs];
+            value = (double) valptr[index];
+            integrals[INDEX4(prel,qrel,rrel,srel)] = value;
+        } /* end loop through current buffer */
+        if(!lastBuffer) iwl->fetch();
+    }while(!lastBuffer);
+    iwl->set_keep_flag(1);
+    delete iwl;
+    double c2 = 0.0;
+    double* Ci = Cncb->get_pointer();
+    double* Cj = Cnca->get_pointer();
+    double* Ck = Cnca->get_pointer();
+    double* Cl = Cncb->get_pointer();
+    for (int i = 0; i < nsopi_[0]; ++i){
+        for (int j = 0; j < nsopi_[0]; ++j){
+            for (int k = 0; k < nsopi_[0]; ++k){
+                for (int l = 0; l < nsopi_[0]; ++l){
+                    c2 += integrals[INDEX4(i,j,k,l)] * Ci[i] * Cj[j] * Ck[k] * Cl[l];
+                }
+            }
+        }
+    }
+    delete[] integrals;
+    fprintf(outfile,"  Matrix element from functor = %20.12f\n",c2);
 
-    // Compute the density matrices with the new occupation
-    form_D();
-
-    // Compute the triplet energy from the density matrices
-    double triplet_energy = compute_E();
-
-    return triplet_energy;
+    return coupling;
 }
 
 double UCKS::compute_overlap(int n)
@@ -1434,3 +1558,44 @@ void UCKS::corresponding_ab_mos()
 //            }
 //        }
 //        // Shift the HOMO orbital in the occupied space
+
+
+//int old_socc[8];
+//int old_docc[8];
+//for(int h = 0; h < nirrep_; ++h){
+//    old_socc[h] = soccpi_[h];
+//    old_docc[h] = doccpi_[h];
+//}
+
+//for (int h = 0; h < nirrep_; ++h) {
+//    soccpi_[h] = std::abs(nalphapi_[h] - nbetapi_[h]);
+//    doccpi_[h] = std::min(nalphapi_[h] , nbetapi_[h]);
+//}
+
+//bool occ_changed = false;
+//for(int h = 0; h < nirrep_; ++h){
+//    if( old_socc[h] != soccpi_[h] || old_docc[h] != doccpi_[h]){
+//        occ_changed = true;
+//        break;
+//    }
+//}
+
+//// If print > 2 (diagnostics), print always
+//if((print_ > 2 || (print_ && occ_changed)) && iteration_ > 0){
+//    if (Communicator::world->me() == 0)
+//        fprintf(outfile, "\tOccupation by irrep:\n");
+//    print_occupation();
+//}
+
+//fprintf(outfile, "\tNA   [ ");
+//for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nalphapi_[h]);
+//fprintf(outfile, " %4d ]\n", nalphapi_[nirrep_-1]);
+//fprintf(outfile, "\tNB   [ ");
+//for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nbetapi_[h]);
+//fprintf(outfile, " %4d ]\n", nbetapi_[nirrep_-1]);
+
+//// Compute the density matrices with the new occupation
+//form_D();
+
+//// Compute the triplet energy from the density matrices
+//double triplet_energy = compute_E();

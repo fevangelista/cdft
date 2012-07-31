@@ -30,8 +30,14 @@ int read_options(std::string name, Options& options)
         options.add_str("CONSTRAINT_TYPE","LOWDIN", "LOWDIN");
         /*- Select the algorithm to optimize the constraints -*/
         options.add_str("W_ALGORITHM","NEWTON","NEWTON QUADRATIC");
-        /*- Select the excited state method -*/
-        options.add_str("CDFT_EXC_METHOD","CEE-R","CEE CEE-R");
+        /*- Select the excited state method.  The valid options are:
+        ``CP`` (constrained particle) which finds the optimal particle orbital
+        while relaxing the other orbitals;
+        ``CHP`` (constrained hole/particle) which finds the optimal hole and
+        particle orbitals while relaxing the other orbitals;
+        ``CHP-F`` (frozen CHP) which is CHP without orbital relaxation.  Default is ``CHP``. -*/
+        options.add_str("CDFT_EXC_METHOD","CHP","CP CHP CHP-F");
+        // CP Constrained particle: find the optimal particle without relaxing
         /*- Select the excited hole to target -*/
         options.add_str("CDFT_EXC_HOLE","VALENCE","VALENCE CORE");
         /*- The threshold for the gradient of the constraint -*/

@@ -49,4 +49,22 @@ void ExcitedState::add_particle(int sym,SharedVector particle,bool alpha)
     }
 }
 
+SharedVector ExcitedState::get_hole(int n,bool alpha)
+{
+    if (alpha){
+        return ahole_[n];
+    }else{
+        return bhole_[n];
+    }
+}
+
+SharedVector ExcitedState::get_particle(int n,bool alpha)
+{
+    if (alpha){
+        return apart_[n];
+    }else{
+        return bpart_[n];
+    }
+}
+
 }} // Namespaces
