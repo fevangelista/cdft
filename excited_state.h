@@ -10,12 +10,16 @@ class ExcitedState
 {
 public:
     ExcitedState();
-    void add_hole(int sym,SharedVector hole,bool alpha);
-    void add_particle(int sym,SharedVector particle,bool alpha);
+    void add_hole(int sym,SharedVector hole,double energy,bool alpha);
+    void add_particle(int sym,SharedVector particle,double energy,bool alpha);
     SharedVector get_hole(int n,bool alpha);
     SharedVector get_particle(int n,bool alpha);
+    double get_hole_energy(int n,bool alpha);
+    double get_particle_energy(int n,bool alpha);
     std::vector<int> aholepi() {return aholepi_;}
     std::vector<int> apartpi() {return apartpi_;}
+    int ap_sym(int n) {return ap_sym_[n];}
+    int ah_sym(int n) {return ah_sym_[n];}
 protected:
     /// The number of alpha holes
     int nahole_;
@@ -41,6 +45,15 @@ protected:
     std::vector<int> apartpi_;
     /// The irrep of the beta particles
     std::vector<int> bpartpi_;
+
+    /// The energy of the alpha holes
+    std::vector<double> epsilon_ah_;
+    /// The energy of the beta holes
+    std::vector<double> epsilon_bh_;
+    /// The energy of the alpha particles
+    std::vector<double> epsilon_ap_;
+    /// The energy of the beta particles
+    std::vector<double> epsilon_bp_;
 
     std::vector<SharedVector> ahole_;
     std::vector<SharedVector> apart_;

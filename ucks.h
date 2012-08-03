@@ -166,12 +166,20 @@ protected:
     void hessian_update(SharedMatrix h, SharedVector dx, SharedVector dg);
     /// Optimize the constraint
     void constraint_optimization();
+    /// The constrained particle algorithm for computing the orbitals
+    void form_C_CP_algorithm();
+    /// The constrained hole/particle algorithm for computing the orbitals
+    void form_C_CHP_algorithm();
     /// Compute the overlap of this solution to the n-th state
     double compute_overlap(int n);
     /// Compute a correction for the mixed excited states
     double compute_triplet_correction();
     /// Compute the corresponding orbitals for the alpha-beta MOs
     void corresponding_ab_mos();
+
+    // Helper functions
+    /// Extract a block from matrix A and copies it to B
+    void extract_block(SharedMatrix A, SharedMatrix B, bool occupied, Dimension npi, double diagonal_shift);
 
     // ROKS functions and variables
     /// Do ROKS?
@@ -185,6 +193,8 @@ protected:
     virtual void form_F();
     /// Diagonalize the Fock matrix to get the MO coefficients
     virtual void form_C();
+
+
     //     /// Computes the density matrix using the occupation numbers
     //     virtual void form_D();
     /// Compute the value of the Lagrangian, at convergence it yields the energy

@@ -33,10 +33,12 @@ int read_options(std::string name, Options& options)
         /*- Select the excited state method.  The valid options are:
         ``CP`` (constrained particle) which finds the optimal particle orbital
         while relaxing the other orbitals;
+        ``CH`` (constrained hole) which finds the optimal hole orbital
+        while relaxing the other orbitals;
         ``CHP`` (constrained hole/particle) which finds the optimal hole and
         particle orbitals while relaxing the other orbitals;
         ``CHP-F`` (frozen CHP) which is CHP without orbital relaxation.  Default is ``CHP``. -*/
-        options.add_str("CDFT_EXC_METHOD","CHP","CP CHP CHP-F");
+        options.add_str("CDFT_EXC_METHOD","CHP","CP CH CHP CHP-F");
         // CP Constrained particle: find the optimal particle without relaxing
         /*- Select the excited hole to target -*/
         options.add_str("CDFT_EXC_HOLE","VALENCE","VALENCE CORE");
