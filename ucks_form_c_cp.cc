@@ -22,26 +22,24 @@ namespace psi{ namespace scf{
 void UCKS::form_C_CP_algorithm()
 {
     int nstate = static_cast<int>(state_Ca.size());
-    fprintf(outfile,"  Computing %d optimal particle orbitals\n",nstate);fflush(outfile);
+    fprintf(outfile,"  Computing %d optimal particle orbitals\n",nstate);
 
-    // Save the hole and particle information and at the same time zero the columns in Ca_
+    // Save the particle information in a ExcitedState object
     current_excited_state = SharedExcitedState(new ExcitedState);
 
+    // Compute the particle states
     for (int m = 0; m < nstate; ++m){
         // Transform Fa to the MO basis of state m
         TempMatrix->transform(Fa_,state_Ca[m]);
-        // Set the orbital transformation matrices for the occ and vir blocks
-        // equal to the identity so that if we decide to optimize only the hole
-        // or the particle all is ok
         // Grab the vir block of Fa
         extract_block(TempMatrix,PvFPv_,false,state_nalphapi[m],1.0e9);
+//        PvFPv_->print();
         PvFPv_->diagonalize(Uv_,lambda_v_);
         std::vector<boost::tuple<double,int,int> > sorted_vir;  // (energy,irrep,mo in irrep)
         for (int h = 0; h < nirrep_; ++h){
-            int nocc = state_nalphapi[m][h];
-            int nvir = nmopi_[h] - nocc;
-            for (int a = 0; a < nvir; ++a){
-                sorted_vir.push_back(boost::make_tuple(lambda_v_->get(h,a),h,a + nocc));  // N.B. shifted to full indexing
+            int nmo = nmopi_[h];
+            for (int p = 0; p < nmo; ++p){
+                sorted_vir.push_back(boost::make_tuple(lambda_v_->get(h,p),h,p));  // N.B. shifted to full indexing
             }
         }
         std::sort(sorted_vir.begin(),sorted_vir.end());
@@ -57,7 +55,7 @@ void UCKS::form_C_CP_algorithm()
         for (int p = 0; p < nsopi_[part_h]; ++p){
             double c_p = 0.0;
             for (int a = 0; a < nmopi_[part_h] - state_nalphapi[m][part_h]; ++a){
-                c_p += state_Ca[m]->get(part_h,p,a) * Uv_->get(part_h,a,part_mo) ;
+                c_p += state_Ca[m]->get(part_h,p,state_nalphapi[m][part_h] + a) * Uv_->get(part_h,a,part_mo) ;
             }
             TempVector->set(part_h,p,c_p);
         }
@@ -74,7 +72,7 @@ void UCKS::form_C_CP_algorithm()
         Cp->set_column(h,offset[h],current_excited_state->get_particle(m,true));
         offset[h] += 1;
     }
-    Cp->print();
+//    Cp->print();
     SharedMatrix Spp = SharedMatrix(new Matrix("Spp",apartpi,apartpi));
     SharedMatrix Upp = SharedMatrix(new Matrix("Upp",apartpi,apartpi));
     SharedVector spp = SharedVector(new Vector("spp",apartpi));
@@ -169,8 +167,8 @@ void UCKS::form_C_CP_algorithm()
     Ca_->copy(TempMatrix);
     epsilon_a_->copy(TempVector.get());
 
-    Ca_->print();
-    epsilon_a_->print();
+//    Ca_->print();
+//    epsilon_a_->print();
 
     int old_socc[8];
     int old_docc[8];
