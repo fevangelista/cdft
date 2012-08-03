@@ -71,8 +71,6 @@ protected:
     SharedVector bocc_num_;
 
     // Information about the excited states
-    /// The alpha eigenvalues for each electronic state
-    std::vector<SharedVector> state_epsilon_a;
     /// The alpha MO coefficients for each electronic state
     std::vector<SharedMatrix> state_Ca;
     /// The beta MO coefficients for each electronic state
@@ -86,36 +84,20 @@ protected:
     /// Details of the other excited states
     std::vector<SharedExcitedState> excited_states;
 
-    /// The alpha density matrix for each electronic state
-    std::vector<SharedMatrix> state_Da;
-    /// The beta density matrix for each electronic state
-    std::vector<SharedMatrix> state_Db;
     /// The ground state scf object
     boost::shared_ptr<UCKS> ref_scf_;
     /// The alpha Fock matrix projected onto the occupied space
-    SharedMatrix PoFaPo_;
+    SharedMatrix PoFPo_;
     /// The alpha Fock matrix projected onto the virtual space
-    SharedMatrix PvFaPv_;
-    /// The eigenvectors of PoFaPo
-    SharedMatrix Uo;
-    /// The eigenvectors of PvFaPv
-    SharedMatrix Uv;
-    /// The eigenvalues of PoFaPo
-    SharedVector lambda_o;
-    /// The eigenvalues of PvFaPv
-    SharedVector lambda_v;
-    /// The beta Fock matrix projected onto the occupied space
-    SharedMatrix PoFbPo_;
-    /// The beta Fock matrix projected onto the virtual space
-    SharedMatrix PvFbPv_;
-    /// The eigenvectors of PoFbPo
-    SharedMatrix Uob;
-    /// The eigenvectors of PvFbPv
-    SharedMatrix Uvb;
-    /// The eigenvalues of PoFbPo
-    SharedVector lambda_ob;
-    /// The eigenvalues of PvFbPv
-    SharedVector lambda_vb;
+    SharedMatrix PvFPv_;
+    /// The eigenvectors of PoFPo
+    SharedMatrix Uo_;
+    /// The eigenvectors of PvFPv
+    SharedMatrix Uv_;
+    /// The eigenvalues of PoFPo
+    SharedVector lambda_o_;
+    /// The eigenvalues of PvFPv
+    SharedVector lambda_v_;
 
     /// The alpha penalty function
     SharedMatrix Pa;
@@ -211,6 +193,8 @@ protected:
     virtual bool test_convergency();
     /// Guess the starting MO
     virtual void guess();
+    /// Save information for successive excited states computations
+    virtual void save_information();
 };
 
 }} // Namespaces

@@ -63,16 +63,18 @@ extern "C"
 PsiReturnType cks(Options& options)
 {
     tstart();
+
     boost::shared_ptr<PSIO> psio = PSIO::shared_object();
 
     std::string reference = options.get_str("REFERENCE");
     std::vector<double> energies;
+
     if (reference == "RKS") {
         throw InputException("Constrained RKS is not implemented ", "REFERENCE to UKS", __FILE__, __LINE__);
     }else if (reference == "UKS") {
         // Run a ground state computation first
         boost::shared_ptr<UCKS> ref_scf = boost::shared_ptr<UCKS>(new UCKS(options, psio));
-        Process::environment.set_reference_wavefunction(ref_scf);
+        Process::environment.set_wavefunction(ref_scf);
         double gs_energy = ref_scf->compute_energy();
         energies.push_back(gs_energy);
 
@@ -87,6 +89,7 @@ PsiReturnType cks(Options& options)
         int nparticles = 0;
         for(int state = 0; state < nexcited; ++state){
             boost::shared_ptr<UCKS> new_scf = boost::shared_ptr<UCKS>(new UCKS(options,psio,ref_scf));
+            Process::environment.set_wavefunction(new_scf);
             double new_energy = new_scf->compute_energy();
             energies.push_back(new_energy);
             ref_scf = new_scf;
@@ -103,7 +106,7 @@ PsiReturnType cks(Options& options)
     }
 
     // Set this early because the callback mechanism uses it.
-    Process::environment.reference_wavefunction().reset();
+    Process::environment.wavefunction().reset();
 
     Communicator::world->sync();
 
