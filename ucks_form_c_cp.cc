@@ -33,9 +33,8 @@ void UCKS::form_C_CP_algorithm()
         TempMatrix->transform(Fa_,state_Ca[m]);
         // Grab the vir block of Fa
         extract_block(TempMatrix,PvFPv_,false,state_nalphapi[m],1.0e9);
-//        PvFPv_->print();
         PvFPv_->diagonalize(Uv_,lambda_v_);
-        std::vector<boost::tuple<double,int,int> > sorted_vir;  // (energy,irrep,mo in irrep)
+        std::vector<boost::tuple<double,int,int> > sorted_vir; // (energy,irrep,mo in irrep)
         for (int h = 0; h < nirrep_; ++h){
             int nmo = nmopi_[h];
             for (int p = 0; p < nmo; ++p){

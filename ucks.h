@@ -166,6 +166,8 @@ protected:
     void hessian_update(SharedMatrix h, SharedVector dx, SharedVector dg);
     /// Optimize the constraint
     void constraint_optimization();
+    /// The constrained hole algorithm for computing the orbitals
+    void form_C_CH_algorithm();
     /// The constrained particle algorithm for computing the orbitals
     void form_C_CP_algorithm();
     /// The constrained hole/particle algorithm for computing the orbitals

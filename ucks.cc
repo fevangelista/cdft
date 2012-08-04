@@ -116,7 +116,11 @@ void UCKS::init()
 
     if(do_excitation){
         fprintf(outfile,"  Saving the reference orbitals for an excited state computation\n");
-        if(KS::options_.get_str("CDFT_EXC_METHOD") == "CP"){
+        if(KS::options_.get_str("CDFT_EXC_METHOD") == "CH"){
+            do_constrained_hole = true;
+            do_constrained_part = false;
+            do_relax_spectators = true;
+        }else if(KS::options_.get_str("CDFT_EXC_METHOD") == "CP"){
             do_constrained_hole = false;
             do_constrained_part = true;
             do_relax_spectators = true;
@@ -291,10 +295,15 @@ void UCKS::form_C()
     if(not do_excitation){
         // Ground state: use the default form_C
         UKS::form_C();
-    }else if(KS::options_.get_str("CDFT_EXC_METHOD") == "CHP"){
-        form_C_CHP_algorithm();
-    }else if(KS::options_.get_str("CDFT_EXC_METHOD") == "CP"){
-        form_C_CP_algorithm();
+    }else{
+        // Excited state: use a special form_C
+        if(KS::options_.get_str("CDFT_EXC_METHOD") == "CH"){
+            form_C_CH_algorithm();
+        }else if(KS::options_.get_str("CDFT_EXC_METHOD") == "CHP"){
+            form_C_CHP_algorithm();
+        }else if(KS::options_.get_str("CDFT_EXC_METHOD") == "CP"){
+            form_C_CP_algorithm();
+        }
     }
 }
 
