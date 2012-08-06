@@ -4,14 +4,14 @@ using namespace psi;
 
 namespace psi{ namespace scf{
 
-ExcitedState::ExcitedState()
+ExcitedState::ExcitedState(int nirreps)
 {
     // Set the number of holes/particles to zero
     nahole_ = 0;
     nbhole_ = 0;
     nbpart_ = 0;
     nbpart_ = 0;
-    for(int h = 0; h < 8; ++h){
+    for(int h = 0; h < nirreps; ++h){
         aholepi_.push_back(0);
         bholepi_.push_back(0);
         apartpi_.push_back(0);

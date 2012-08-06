@@ -9,7 +9,7 @@ namespace scf{
 class ExcitedState
 {
 public:
-    ExcitedState();
+    ExcitedState(int nirreps);
     void add_hole(int sym,SharedVector hole,double energy,bool alpha);
     void add_particle(int sym,SharedVector particle,double energy,bool alpha);
     SharedVector get_hole(int n,bool alpha);

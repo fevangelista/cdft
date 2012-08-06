@@ -24,7 +24,7 @@ void UCKS::form_C_CHP_algorithm()
     // Excited state: use specialized code
 
     // Transform Fa to the ground state MO basis
-    TempMatrix->transform(Fa_,state_Ca[0]);
+    TempMatrix->transform(Fa_,dets[0]->Ca());
 
     // Set the orbital transformation matrices for the occ and vir blocks
     // equal to the identity so that if we decide to optimize only the hole
@@ -44,12 +44,12 @@ void UCKS::form_C_CHP_algorithm()
     // |        |        |
     // |--------|--------|
     if(do_constrained_hole){
-        extract_block(TempMatrix,PoFPo_,true,state_nalphapi[0],1.0e9);
+        extract_square_subblock(TempMatrix,PoFPo_,true,dets[0]->nalphapi(),1.0e9);
         PoFPo_->diagonalize(Uo_,lambda_o_);
         // Sort the orbitals according to the eigenvalues of PoFaPo
         std::vector<boost::tuple<double,int,int> > sorted_occ;
         for (int h = 0; h < nirrep_; ++h){
-            int nocc = state_nalphapi[0][h];
+            int nocc = dets[0]->nalphapi()[h];
             for (int i = 0; i < nocc; ++i){
                 sorted_occ.push_back(boost::make_tuple(lambda_o_->get(h,i),h,i));
             }
@@ -67,12 +67,12 @@ void UCKS::form_C_CHP_algorithm()
     }
 
     if(do_constrained_part){
-        extract_block(TempMatrix,PvFPv_,false,state_nalphapi[0],1.0e9);
+        extract_square_subblock(TempMatrix,PvFPv_,false,dets[0]->nalphapi(),1.0e9);
         PvFPv_->diagonalize(Uv_,lambda_v_);
         // Sort the orbitals according to the eigenvalues of PvFaPv
         std::vector<boost::tuple<double,int,int> > sorted_vir;
         for (int h = 0; h < nirrep_; ++h){
-            int nocc = state_nalphapi[0][h];
+            int nocc = dets[0]->nalphapi()[h];
             int nvir = nmopi_[h] - nocc;
             for (int i = 0; i < nvir; ++i){
                 sorted_vir.push_back(boost::make_tuple(lambda_v_->get(h,i),h,i + nocc));  // N.B. shifted to full indexing
@@ -91,7 +91,7 @@ void UCKS::form_C_CHP_algorithm()
     // |----|----|
     TempMatrix->zero();
     for (int h = 0; h < nirrep_; ++h){
-        int nocc = state_nalphapi[0][h];
+        int nocc = dets[0]->nalphapi()[h];
         int nvir = nmopi_[h] - nocc;
         if (nocc != 0){
             double** Temp_h = TempMatrix->pointer(h);
@@ -116,7 +116,7 @@ void UCKS::form_C_CHP_algorithm()
     }
 
     // Get the excited state orbitals: Ca(ex) = Ca(gs) * (Uo | Uv)
-    Ca_->gemm(false,false,1.0,state_Ca[0],TempMatrix,0.0);
+    Ca_->gemm(false,false,1.0,dets[0]->Ca(),TempMatrix,0.0);
     if(do_constrained_hole and do_constrained_part){
         fprintf(outfile,"   constrained hole/particle pair :(irrep = %d,mo = %d,energy = %.6f) -> (irrep = %d,mo = %d,energy = %.6f)\n",
                 hole.get<1>(),hole.get<2>(),hole.get<0>(),
@@ -130,7 +130,7 @@ void UCKS::form_C_CHP_algorithm()
     }
 
     // Save the hole and particle information and at the same time zero the columns in Ca_
-    current_excited_state = SharedExcitedState(new ExcitedState);
+    current_excited_state = SharedExcitedState(new ExcitedState(nirrep_));
     if(do_constrained_hole){
         SharedVector hole_mo = Ca_->get_column(hole.get<1>(),hole.get<2>());
         Ca_->zero_column(hole.get<1>(),hole.get<2>());
@@ -146,9 +146,9 @@ void UCKS::form_C_CHP_algorithm()
 
     // Adjust the occupation (nalphapi_,nbetapi_)
     for (int h = 0; h < nirrep_; ++h){
-        nalphapi_[h] = state_nalphapi[0][h];
-        nbetapi_[h] = state_nbetapi[0][h];
+        nalphapi_[h] = dets[0]->nalphapi()[h];
     }
+    nbetapi_ = dets[0]->nbetapi();
     nalphapi_[hole.get<1>()] -= 1;
     nalphapi_[particle.get<1>()] += 1;
 

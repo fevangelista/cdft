@@ -10,7 +10,6 @@
 #include <liboptions/liboptions.h>
 #include <libciomr/libciomr.h>
 #include <libqt/qt.h>
-#include "boost/tuple/tuple.hpp"
 #include "boost/tuple/tuple_comparison.hpp"
 #include <libiwl/iwl.hpp>
 #include <psifiles.h>
@@ -143,26 +142,10 @@ void UCKS::init()
         lambda_o_ = factory_->create_shared_vector("lambda_o");
         lambda_v_ = factory_->create_shared_vector("lambda_v");
 
-        //        PoFaPo_ = SharedMatrix(new Matrix("PoFaPo",nocc_alphapi,nocc_alphapi));
-//        PvFaPv_ = SharedMatrix(new Matrix("PvFaPv",nvir_alphapi,nvir_alphapi));
-//        Uo = SharedMatrix(new Matrix("PoFaPo",nocc_alphapi,nocc_alphapi));
-//        Uv = SharedMatrix(new Matrix("PvFaPv",nvir_alphapi,nvir_alphapi));
-//        lambda_o = SharedVector(new Vector("lambda_o",nocc_alphapi));
-//        lambda_v = SharedVector(new Vector("lambda_v",nvir_alphapi));
-//        Dimension nocc_betapi = ref_scf_->nbetapi_;
-//        Dimension nvir_betapi = ref_scf_->nmopi_ - nocc_betapi;
-//        PoFbPo_ = SharedMatrix(new Matrix("PoFbPo",nocc_betapi,nocc_betapi));
-//        PvFbPv_ = SharedMatrix(new Matrix("PvFbPv",nvir_betapi,nvir_betapi));
-//        Uob = SharedMatrix(new Matrix("Uob",nocc_betapi,nocc_betapi));
-//        Uvb = SharedMatrix(new Matrix("Uvb",nvir_betapi,nvir_betapi));
-//        lambda_ob = SharedVector(new Vector("lambda_o",nocc_betapi));
-//        lambda_vb = SharedVector(new Vector("lambda_v",nvir_betapi));
+        // Save the reference state MOs and occupation numbers
+        dets = ref_scf_->dets;
 
-        // Save the reference state MOs and density matrix
-        state_Ca = ref_scf_->state_Ca;
-        state_Cb = ref_scf_->state_Cb;
-        state_nalphapi = ref_scf_->state_nalphapi;
-        state_nbetapi = ref_scf_->state_nbetapi;
+        // Set the Fock matrix to the converged Fock matrix for the previous state
         Fa_->copy(ref_scf_->Fa_);
         Fb_->copy(ref_scf_->Fb_);
     }
@@ -573,15 +556,16 @@ bool UCKS::test_convergency()
         bool constraint_test = gradW->norm() < gradW_threshold_;
         constraint_optimization();
         if(energy_test and density_test and constraint_test){
-//            if(do_excitation){
-//                double E_T = compute_triplet_correction();
-//                double exc_energy = E_ - E_T - ground_state_energy;
-//                fprintf(outfile,"  Excited triplet state : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
-//                        exc_energy,exc_energy * _hartree2ev, exc_energy * _hartree2wavenumbers);
-//                exc_energy = E_ + E_T - ground_state_energy;
-//                fprintf(outfile,"  Excited singlet state : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
-//                        exc_energy,exc_energy * _hartree2ev, exc_energy * _hartree2wavenumbers);
-//            }
+            if(do_excitation){
+                spin_adapt_mixed_excitation();
+                double E_T = compute_triplet_correction();
+                double exc_energy = E_ - E_T - ground_state_energy;
+                fprintf(outfile,"  Excited triplet state : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+                        exc_energy,exc_energy * _hartree2ev, exc_energy * _hartree2wavenumbers);
+                exc_energy = E_ + E_T - ground_state_energy;
+                fprintf(outfile,"  Excited singlet state : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+                        exc_energy,exc_energy * _hartree2ev, exc_energy * _hartree2wavenumbers);
+            }
             return true;
         }else{
             return false;
@@ -600,10 +584,16 @@ bool UCKS::test_convergency()
 
 void UCKS::save_information()
 {
-    state_Ca.push_back(Ca_);
-    state_Cb.push_back(Cb_);
-    state_nalphapi.push_back(nalphapi_);
-    state_nbetapi.push_back(nalphapi_);
+    dets.push_back(SharedDeterminant(new Determinant(Ca_,Cb_,nalphapi_,nbetapi_)));
+}
+
+void UCKS::spin_adapt_mixed_excitation()
+{
+    SharedDeterminant D1 = SharedDeterminant(new Determinant(Ca_,Cb_,nalphapi_,nbetapi_));
+    SharedDeterminant D2 = SharedDeterminant(new Determinant(Cb_,Ca_,nbetapi_,nalphapi_));
+    std::pair<double,double> M12 = matrix_element(D1,D2);
+    double S12 = M12.first;
+    double H12 = M12.second;
 }
 
 double UCKS::compute_triplet_correction()
@@ -826,7 +816,7 @@ double UCKS::compute_overlap(int n)
 //    // Grab S_aa from Ua
 //    SharedMatrix S_aa = SharedMatrix(new Matrix("S_aa",state_nalphapi[n],nalphapi_));
 //    for (int h = 0; h < nirrep_; ++h) {
-//        int ngs_occ = state_nalphapi[0][h];
+//        int ngs_occ = dets[0]->nalphapi()[h];
 //        int nex_occ = nalphapi_[h];
 //        if (ngs_occ == 0 or nex_occ == 0) continue;
 //        double** Ua_h = Ua->pointer(h);
@@ -843,7 +833,7 @@ double UCKS::compute_overlap(int n)
 //    {
 //        boost::tuple<SharedMatrix, SharedVector, SharedMatrix> UsV = S_aa->svd_temps();
 //        S_aa->svd(UsV.get<0>(),UsV.get<1>(),UsV.get<2>());
-//        if(state_nalphapi[0] == nalphapi_){
+//        if(dets[0]->nalphapi() == nalphapi_){
 //            for (int h = 0; h < nirrep_; ++h) {
 //                for (int i = 0; i < UsV.get<1>()->dim(h); ++i){
 //                    detS_aa *= UsV.get<1>()->get(h,i);
@@ -911,7 +901,7 @@ void UCKS::corresponding_ab_mos()
 }
 
 
-void UCKS::extract_block(SharedMatrix A, SharedMatrix B, bool occupied, Dimension npi, double diagonal_shift)
+void UCKS::extract_square_subblock(SharedMatrix A, SharedMatrix B, bool occupied, Dimension npi, double diagonal_shift)
 {
     // Set the diagonal of B to diagonal_shift
     B->identity();
@@ -927,6 +917,25 @@ void UCKS::extract_block(SharedMatrix A, SharedMatrix B, bool occupied, Dimensio
             for (int i = 0; i < block_dim; ++i){
                 for (int j = 0; j < block_dim; ++j){
                     B_h[i][j] = A_h[i + block_shift][j + block_shift];
+                }
+            }
+        }
+    }
+}
+
+void UCKS::copy_subblock(SharedMatrix A, SharedMatrix B, Dimension rowspi, Dimension colspi, bool occupied)
+{
+    for (int h = 0; h < nirrep_; ++h){
+        int nrows = occupied ? rowspi[h] : nmopi_[h] - rowspi[h];
+        int row_shift = occupied ? 0 : rowspi[h];
+        int ncols = occupied ? colspi[h] : nmopi_[h] - colspi[h];
+        int col_shift = occupied ? 0 : colspi[h];
+        if (nrows * ncols != 0){
+            double** A_h = A->pointer(h);
+            double** B_h = B->pointer(h);
+            for (int i = 0; i < nrows; ++i){
+                for (int j = 0; j < ncols; ++j){
+                    B_h[i][j] = A_h[i + row_shift][j + col_shift];
                 }
             }
         }

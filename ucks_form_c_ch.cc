@@ -21,18 +21,18 @@ namespace psi{ namespace scf{
 
 void UCKS::form_C_CH_algorithm()
 {
-    int nstate = static_cast<int>(state_Ca.size());
-    fprintf(outfile,"  Computing %d optimal hole orbitals\n",nstate);
+    int nstate = static_cast<int>(dets.size());
+    fprintf(outfile,"  Computing %d optimal hole orbitals\n",nstate);fflush(outfile);
 
     // Save the hole information in a ExcitedState object
-    current_excited_state = SharedExcitedState(new ExcitedState);
+    current_excited_state = SharedExcitedState(new ExcitedState(nirrep_));
 
     // Compute the hole states
     for (int m = 0; m < nstate; ++m){
         // Transform Fa to the MO basis of state m
-        TempMatrix->transform(Fa_,state_Ca[m]);
+        TempMatrix->transform(Fa_,dets[m]->Ca());
         // Grab the occ block of Fa
-        extract_block(TempMatrix,PoFPo_,true,state_nalphapi[m],1.0e9);
+        extract_square_subblock(TempMatrix,PoFPo_,true,dets[m]->nalphapi(),1.0e9);
         PoFPo_->diagonalize(Uo_,lambda_o_);
         std::vector<boost::tuple<double,int,int> > sorted_holes; // (energy,irrep,mo in irrep)
         for (int h = 0; h < nirrep_; ++h){
@@ -63,8 +63,8 @@ void UCKS::form_C_CH_algorithm()
         TempVector->zero();
         for (int p = 0; p < nsopi_[hole_h]; ++p){
             double c_p = 0.0;
-            for (int i = 0; i < state_nalphapi[m][hole_h]; ++i){
-                c_p += state_Ca[m]->get(hole_h,p,i) * Uo_->get(hole_h,i,hole_mo) ;
+            for (int i = 0; i < dets[m]->nalphapi()[hole_h]; ++i){
+                c_p += dets[m]->Ca()->get(hole_h,p,i) * Uo_->get(hole_h,i,hole_mo) ;
             }
             TempVector->set(hole_h,p,c_p);
         }
@@ -86,7 +86,12 @@ void UCKS::form_C_CH_algorithm()
     SharedMatrix Spp = SharedMatrix(new Matrix("Spp",aholepi,aholepi));
     SharedMatrix Upp = SharedMatrix(new Matrix("Upp",aholepi,aholepi));
     SharedVector spp = SharedVector(new Vector("spp",aholepi));
+    fprintf(outfile,"  -->> A <<--\n");fflush(outfile);
+    S_->print();
+    Ch->print();
+    Spp->print();
     Spp->transform(S_,Ch);
+    fprintf(outfile,"  -->> B <<--\n");fflush(outfile);
     Spp->print();
     Spp->diagonalize(Upp,spp);
     double S_cutoff = 1.0e-3;
@@ -103,19 +108,18 @@ void UCKS::form_C_CH_algorithm()
         }
     }
     Cho->gemm(false,false,1.0,Ch,Upp,0.0);
-
     // Form the projector onto the orbitals orthogonal to the particles in the ground state mo representation
     TempMatrix->gemm(false,true,1.0,Cho,Cho,0.0);
     TempMatrix->transform(S_);
-    TempMatrix->transform(state_Ca[0]);
+    TempMatrix->transform(dets[0]->Ca());
     TempMatrix2->identity();
     TempMatrix2->subtract(TempMatrix);
 
     // Form the Fock matrix in the GS basis, project our the holes, diagonalize it, and transform the MO coefficients
-    TempMatrix->transform(Fa_,state_Ca[0]);
+    TempMatrix->transform(Fa_,dets[0]->Ca());
     TempMatrix->transform(TempMatrix2);
     TempMatrix->diagonalize(TempMatrix2,epsilon_a_);
-    Ca_->gemm(false,false,1.0,state_Ca[0],TempMatrix2,0.0);
+    Ca_->gemm(false,false,1.0,dets[0]->Ca(),TempMatrix2,0.0);
 
     std::vector<boost::tuple<double,int,int> > sorted_spectators;
     for (int h = 0; h < nirrep_; ++h){
@@ -127,8 +131,8 @@ void UCKS::form_C_CH_algorithm()
 
     for (int h = 0; h < nirrep_; ++h){
         nalphapi_[h] = 0;
-        nbetapi_[h] = state_nbetapi[0][h];
     }
+    nbetapi_ = dets[0]->nbetapi();
     int assigned = 0;
     for (int p = 0; p < nmo_; ++p){
         if (assigned < nalpha_){

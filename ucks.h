@@ -1,6 +1,7 @@
 #ifndef SRC_LIB_UCKS_H
 #define SRC_LIB_UCKS_H
 
+#include "boost/tuple/tuple.hpp"
 #include <libscf_solver/ks.h>
 #include <constraint.h>
 #include <excited_state.h>
@@ -71,14 +72,8 @@ protected:
     SharedVector bocc_num_;
 
     // Information about the excited states
-    /// The alpha MO coefficients for each electronic state
-    std::vector<SharedMatrix> state_Ca;
-    /// The beta MO coefficients for each electronic state
-    std::vector<SharedMatrix> state_Cb;
-    /// The alpha density matrix for each electronic state
-    std::vector<Dimension> state_nalphapi;
-    /// The beta MO coefficients for each electronic state
-    std::vector<Dimension> state_nbetapi;
+    /// Determinant information for each electronic state
+    std::vector<SharedDeterminant> dets;
     /// Details of the excited states
     SharedExcitedState current_excited_state;
     /// Details of the other excited states
@@ -178,17 +173,22 @@ protected:
     double compute_triplet_correction();
     /// Compute the corresponding orbitals for the alpha-beta MOs
     void corresponding_ab_mos();
+    /// Compute the singlet and triplet energy of a mixed excited state
+    void spin_adapt_mixed_excitation();
+    /// Compute the corresponding orbitals for a pair of MO sets
+    boost::tuple<SharedMatrix,SharedMatrix,SharedVector,double> corresponding_orbitals(SharedMatrix A, SharedMatrix B, Dimension dima, Dimension dimb);
 
     // Helper functions
     /// Extract a block from matrix A and copies it to B
-    void extract_block(SharedMatrix A, SharedMatrix B, bool occupied, Dimension npi, double diagonal_shift);
+    void extract_square_subblock(SharedMatrix A, SharedMatrix B, bool occupied, Dimension npi, double diagonal_shift);
+    /// Copy a subblock of dimension rowspi x colspi from matrix A into B.  If desired, it can copy the complementary subblock
+    void copy_subblock(SharedMatrix A, SharedMatrix B, Dimension rowspi, Dimension colspi,bool occupied);
 
     // ROKS functions and variables
     /// Do ROKS?
     bool do_roks;
 
-    //double determinant_overlap(Determinant A,Determinant B);
-    //double determinant_hamiltonian(Determinant A,Determinant B)
+    std::pair<double,double> matrix_element(SharedDeterminant A, SharedDeterminant B);
 
     // Overloaded UKS function
     /// Form the Fock matrix augmented with the constraints and/or projected

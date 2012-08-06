@@ -21,18 +21,18 @@ namespace psi{ namespace scf{
 
 void UCKS::form_C_CP_algorithm()
 {
-    int nstate = static_cast<int>(state_Ca.size());
+    int nstate = static_cast<int>(dets.size());
     fprintf(outfile,"  Computing %d optimal particle orbitals\n",nstate);
 
     // Save the particle information in a ExcitedState object
-    current_excited_state = SharedExcitedState(new ExcitedState);
+    current_excited_state = SharedExcitedState(new ExcitedState(nirrep_));
 
     // Compute the particle states
     for (int m = 0; m < nstate; ++m){
         // Transform Fa to the MO basis of state m
-        TempMatrix->transform(Fa_,state_Ca[m]);
+        TempMatrix->transform(Fa_,dets[m]->Ca());
         // Grab the vir block of Fa
-        extract_block(TempMatrix,PvFPv_,false,state_nalphapi[m],1.0e9);
+        extract_square_subblock(TempMatrix,PvFPv_,false,dets[m]->nalphapi(),1.0e9);
         PvFPv_->diagonalize(Uv_,lambda_v_);
         std::vector<boost::tuple<double,int,int> > sorted_vir; // (energy,irrep,mo in irrep)
         for (int h = 0; h < nirrep_; ++h){
@@ -53,8 +53,9 @@ void UCKS::form_C_CP_algorithm()
         TempVector->zero();
         for (int p = 0; p < nsopi_[part_h]; ++p){
             double c_p = 0.0;
-            for (int a = 0; a < nmopi_[part_h] - state_nalphapi[m][part_h]; ++a){
-                c_p += state_Ca[m]->get(part_h,p,state_nalphapi[m][part_h] + a) * Uv_->get(part_h,a,part_mo) ;
+            int maxa = nmopi_[part_h] - dets[m]->nalphapi()[part_h];
+            for (int a = 0; a < maxa; ++a){
+                c_p += dets[m]->Ca()->get(part_h,p,dets[m]->nalphapi()[part_h] + a) * Uv_->get(part_h,a,part_mo) ;
             }
             TempVector->set(part_h,p,c_p);
         }
@@ -98,15 +99,15 @@ void UCKS::form_C_CP_algorithm()
     // Form the projector onto the orbitals orthogonal to the particles in the ground state mo representation
     TempMatrix->gemm(false,true,1.0,Cpo,Cpo,0.0);
     TempMatrix->transform(S_);
-    TempMatrix->transform(state_Ca[0]);
+    TempMatrix->transform(dets[0]->Ca());
     TempMatrix2->identity();
     TempMatrix2->subtract(TempMatrix);
 
     // Form the Fock matrix in the GS basis, diagonalize it, and transform the MO coefficients
-    TempMatrix->transform(Fa_,state_Ca[0]);
+    TempMatrix->transform(Fa_,dets[0]->Ca());
     TempMatrix->transform(TempMatrix2);
     TempMatrix->diagonalize(TempMatrix2,epsilon_a_);
-    Ca_->gemm(false,false,1.0,state_Ca[0],TempMatrix2,0.0);
+    Ca_->gemm(false,false,1.0,dets[0]->Ca(),TempMatrix2,0.0);
 
     std::vector<boost::tuple<double,int,int> > sorted_spectators;
     for (int h = 0; h < nirrep_; ++h){
@@ -118,8 +119,8 @@ void UCKS::form_C_CP_algorithm()
 
     for (int h = 0; h < nirrep_; ++h){
         nalphapi_[h] = apartpi[h];
-        nbetapi_[h] = state_nbetapi[0][h];
     }
+    nbetapi_ = dets[0]->nbetapi();
     int assigned = 0;
     for (int p = 0; p < nmo_; ++p){
         if (assigned < nalpha_ - nstate){
@@ -248,7 +249,7 @@ void UCKS::form_C_CP_algorithm()
 //        PoFPo_->identity();
 //        PoFPo_->scale(1.0e9);
 //        for (int h = 0; h < nirrep_; ++h){
-//            int nocc = state_nalphapi[0][h];
+//            int nocc = dets[0]->nalphapi()[h];
 //            if (nocc != 0){
 //                double** Temp_h = TempMatrix->pointer(h);
 //                double** PoFaPo_h = PoFPo_->pointer(h);
@@ -263,7 +264,7 @@ void UCKS::form_C_CP_algorithm()
 //        // Sort the orbitals according to the eigenvalues of PoFaPo
 //        std::vector<boost::tuple<double,int,int> > sorted_occ;
 //        for (int h = 0; h < nirrep_; ++h){
-//            int nocc = state_nalphapi[0][h];
+//            int nocc = dets[0]->nalphapi()[h];
 //            for (int i = 0; i < nocc; ++i){
 //                sorted_occ.push_back(boost::make_tuple(lambda_o_->get(h,i),h,i));
 //            }
@@ -284,7 +285,7 @@ void UCKS::form_C_CP_algorithm()
 //        PvFPv_->identity();
 //        PvFPv_->scale(1.0e9);
 //        for (int h = 0; h < nirrep_; ++h){
-//            int nocc = state_nalphapi[0][h];
+//            int nocc = dets[0]->nalphapi()[h];
 //            int nvir = nmopi_[h] - nocc;
 //            if (nvir != 0){
 //                double** Temp_h = TempMatrix->pointer(h);
@@ -300,7 +301,7 @@ void UCKS::form_C_CP_algorithm()
 //        // Sort the orbitals according to the eigenvalues of PvFaPv
 //        std::vector<boost::tuple<double,int,int> > sorted_vir;
 //        for (int h = 0; h < nirrep_; ++h){
-//            int nocc = state_nalphapi[0][h];
+//            int nocc = dets[0]->nalphapi()[h];
 //            int nvir = nmopi_[h] - nocc;
 //            for (int i = 0; i < nvir; ++i){
 //                sorted_vir.push_back(boost::make_tuple(lambda_v_->get(h,i),h,i + nocc));  // N.B. shifted to full indexing
@@ -319,7 +320,7 @@ void UCKS::form_C_CP_algorithm()
 //    // |----|----|
 //    TempMatrix->zero();
 //    for (int h = 0; h < nirrep_; ++h){
-//        int nocc = state_nalphapi[0][h];
+//        int nocc = dets[0]->nalphapi()[h];
 //        int nvir = nmopi_[h] - nocc;
 //        if (nocc != 0){
 //            double** Temp_h = TempMatrix->pointer(h);
@@ -344,7 +345,7 @@ void UCKS::form_C_CP_algorithm()
 //    }
 
 //    // Get the excited state orbitals: Ca(ex) = Ca(gs) * (Uo | Uv)
-//    Ca_->gemm(false,false,1.0,state_Ca[0],TempMatrix,0.0);
+//    Ca_->gemm(false,false,1.0,dets[0]->Ca(),TempMatrix,0.0);
 //    if(do_constrained_hole and do_constrained_part){
 //        fprintf(outfile,"   constrained hole/particle pair :(irrep = %d,mo = %d,energy = %.6f) -> (irrep = %d,mo = %d,energy = %.6f)\n",
 //                hole.get<1>(),hole.get<2>(),hole.get<0>(),
