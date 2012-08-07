@@ -207,6 +207,8 @@ protected:
     virtual void guess();
     /// Save information for successive excited states computations
     virtual void save_information();
+
+    boost::tuple<SharedMatrix, SharedVector, SharedMatrix> my_svd_temps(SharedMatrix M);
 };
 
 }} // Namespaces

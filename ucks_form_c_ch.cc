@@ -86,13 +86,7 @@ void UCKS::form_C_CH_algorithm()
     SharedMatrix Spp = SharedMatrix(new Matrix("Spp",aholepi,aholepi));
     SharedMatrix Upp = SharedMatrix(new Matrix("Upp",aholepi,aholepi));
     SharedVector spp = SharedVector(new Vector("spp",aholepi));
-    fprintf(outfile,"  -->> A <<--\n");fflush(outfile);
-    S_->print();
-    Ch->print();
-    Spp->print();
     Spp->transform(S_,Ch);
-    fprintf(outfile,"  -->> B <<--\n");fflush(outfile);
-    Spp->print();
     Spp->diagonalize(Upp,spp);
     double S_cutoff = 1.0e-3;
     // Form the transformation matrix X (in place of Upp)
@@ -107,9 +101,13 @@ void UCKS::form_C_CH_algorithm()
             }
         }
     }
+    Cho->zero();
     Cho->gemm(false,false,1.0,Ch,Upp,0.0);
+
     // Form the projector onto the orbitals orthogonal to the particles in the ground state mo representation
+    TempMatrix->zero();
     TempMatrix->gemm(false,true,1.0,Cho,Cho,0.0);
+    TempMatrix->print();
     TempMatrix->transform(S_);
     TempMatrix->transform(dets[0]->Ca());
     TempMatrix2->identity();
@@ -119,7 +117,10 @@ void UCKS::form_C_CH_algorithm()
     TempMatrix->transform(Fa_,dets[0]->Ca());
     TempMatrix->transform(TempMatrix2);
     TempMatrix->diagonalize(TempMatrix2,epsilon_a_);
+    Ca_->zero();
     Ca_->gemm(false,false,1.0,dets[0]->Ca(),TempMatrix2,0.0);
+
+    epsilon_a_->print();
 
     std::vector<boost::tuple<double,int,int> > sorted_spectators;
     for (int h = 0; h < nirrep_; ++h){
@@ -143,7 +144,7 @@ void UCKS::form_C_CH_algorithm()
             }
         }
     }
-
+    print_occupation();
     // At this point the orbitals are sorted according to the energy but we
     // want to make sure that the hole MO appear where they should, that is
     // the holes in the virtual space.
@@ -180,6 +181,7 @@ void UCKS::form_C_CH_algorithm()
     Ca_->copy(TempMatrix);
     epsilon_a_->copy(TempVector.get());
 
+    Ca_->print();
     int old_socc[8];
     int old_docc[8];
     for(int h = 0; h < nirrep_; ++h){

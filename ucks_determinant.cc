@@ -19,6 +19,22 @@ using namespace psi;
 
 namespace psi{ namespace scf{
 
+boost::tuple<SharedMatrix, SharedVector, SharedMatrix> UCKS::my_svd_temps(SharedMatrix M)
+{
+    Dimension m = M->rowspi();
+    Dimension n = M->colspi();
+    Dimension rank(nirrep_);
+    for (int h = 0; h < nirrep_; h++) {
+        int m_h = m[h];
+        int n_h = n[h ^ M->symmetry()];
+        rank[h] = std::min(m_h,n_h);
+    }
+    SharedMatrix U(new Matrix("U", m, m));
+    SharedVector S(new Vector("S", rank));
+    SharedMatrix V(new Matrix("V", n, n));
+    return boost::tuple<SharedMatrix, SharedVector, SharedMatrix>(U,S,V);
+}
+
 std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDeterminant B)
 {
     double overlap = 0.0;
@@ -26,7 +42,7 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
 
     // I. Form the corresponding alpha and beta orbitals
     boost::tuple<SharedMatrix,SharedMatrix,SharedVector,double> calpha = corresponding_orbitals(A->Ca(),B->Ca(),A->nalphapi(),B->nalphapi());
-    boost::tuple<SharedMatrix,SharedMatrix,SharedVector,double> cbeta = corresponding_orbitals(A->Cb(),B->Cb(),A->nbetapi(),B->nbetapi());
+    boost::tuple<SharedMatrix,SharedMatrix,SharedVector,double> cbeta  = corresponding_orbitals(A->Cb(),B->Cb(),A->nbetapi(),B->nbetapi());
     SharedMatrix ACa = calpha.get<0>();
     SharedMatrix BCa = calpha.get<1>();
     SharedMatrix ACb = cbeta.get<0>();
@@ -160,6 +176,7 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
         std::vector<SharedMatrix>& C_right = jk->C_right();
         C_right.clear();
         C_right.push_back(A_b);
+        THERE IS A BUG STARTING FROM HERE (likely in libfock)
         jk->compute();
         SharedMatrix Jnew = jk->J()[0];
         Jnew->print();
@@ -208,12 +225,12 @@ UCKS::corresponding_orbitals(SharedMatrix A, SharedMatrix B, Dimension dima, Dim
         }
     }
     // SVD <B|S|A>
-    boost::tuple<SharedMatrix, SharedVector, SharedMatrix> UsV = Sba->svd_temps();
+    boost::tuple<SharedMatrix, SharedVector, SharedMatrix> UsV = my_svd_temps(Sba);
     SharedMatrix U = UsV.get<0>();
     SharedVector sigma = UsV.get<1>();
     SharedMatrix V = UsV.get<2>();
-    Sba->svd(U,sigma,V);
-//    sigma->print();
+    Sba->svd_a(U,sigma,V);
+    sigma->print();
     U->print();
     V->print();
 
@@ -257,26 +274,30 @@ UCKS::corresponding_orbitals(SharedMatrix A, SharedMatrix B, Dimension dima, Dim
     // Find the product of the determinants of U and V
     double detU = 1.0;
     for (int h = 0; h < nirrep_; ++h) {
-        double d = 1.0;
         int nmo = U->rowdim(h);
-        int* indx = new int[nmo];
-        ludcmp(U->pointer(h),nmo,indx,&d);
-        detU *= d;
-        delete[] indx;
+        if(nmo > 1){
+            double d = 1.0;
+            int* indx = new int[nmo];
+            ludcmp(U->pointer(h),nmo,indx,&d);
+            detU *= d;
+            delete[] indx;
+        }
     }
     double detV = 1.0;
     for (int h = 0; h < nirrep_; ++h) {
-        double d = 1.0;
         int nmo = V->rowdim(h);
-        int* indx = new int[nmo];
-        ludcmp(V->pointer(h),nmo,indx,&d);
-        detV *= d;
-        delete[] indx;
+        if(nmo > 1){
+            double d = 1.0;
+            int* indx = new int[nmo];
+            ludcmp(V->pointer(h),nmo,indx,&d);
+            detV *= d;
+            delete[] indx;
+        }
     }
     fprintf(outfile,"\n det U = %f, det V = %f",detU,detV);
     double detUV = detU * detV;
-
-    return boost::tuple<SharedMatrix,SharedMatrix,SharedVector,double>(cA,cB,sigma,detUV);
+    boost::tuple<SharedMatrix,SharedMatrix,SharedVector,double> result(cA,cB,sigma,detUV);
+    return result;
 }
 
 }} // Namespaces

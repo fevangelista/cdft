@@ -97,6 +97,7 @@ void UCKS::form_C_CP_algorithm()
     Cpo->gemm(false,false,1.0,Cp,Upp,0.0);
 
     // Form the projector onto the orbitals orthogonal to the particles in the ground state mo representation
+    TempMatrix->zero();
     TempMatrix->gemm(false,true,1.0,Cpo,Cpo,0.0);
     TempMatrix->transform(S_);
     TempMatrix->transform(dets[0]->Ca());
