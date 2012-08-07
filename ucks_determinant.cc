@@ -161,27 +161,29 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
         int b_beta_mo  = Bbeta_nonc[0].second;
 
         Dimension A_beta_dim(nirrep_,"A_beta_dim");
-        A_beta_dim[a_beta_h] = 1;
+        A_beta_dim[0] = 1;
         Dimension B_beta_dim(nirrep_,"B_beta_dim");
-        B_beta_dim[b_beta_h] = 1;
-
-        SharedMatrix A_b(new Matrix("A_b", nsopi_, A_beta_dim));
-        A_b->set_column(a_beta_h,0,ACb->get_column(a_beta_h,a_beta_mo));
-        SharedMatrix B_b(new Matrix("B_b", nsopi_, B_beta_dim));
-        B_b->set_column(b_beta_h,0,BCb->get_column(b_beta_h,b_beta_mo));
-
+        B_beta_dim[0] = 1;
+        A_beta_dim.print();
+        SharedMatrix A_b(new Matrix("A_b", nsopi_, A_beta_dim,a_beta_h));
+        SharedMatrix B_b(new Matrix("B_b", nsopi_, B_beta_dim,b_beta_h));
+        for (int m = 0; m < nsopi_[a_beta_h]; ++m){
+            A_b->set(a_beta_h,m,0,ACb->get(a_beta_h,m,a_beta_mo));
+        }
+        for (int m = 0; m < nsopi_[b_beta_h]; ++m){
+            B_b->set(b_beta_h,m,0,BCb->get(b_beta_h,m,b_beta_mo));
+        }
         std::vector<SharedMatrix>& C_left = jk->C_left();
         C_left.clear();
         C_left.push_back(B_b);
         std::vector<SharedMatrix>& C_right = jk->C_right();
         C_right.clear();
         C_right.push_back(A_b);
-        THERE IS A BUG STARTING FROM HERE (likely in libfock)
         jk->compute();
         SharedMatrix Jnew = jk->J()[0];
         Jnew->print();
 
-        SharedMatrix D = SharedMatrix(new Matrix("D",nirrep_, nsopi_, nsopi_, a_alpha_h * b_alpha_h));
+        SharedMatrix D = SharedMatrix(new Matrix("D",nirrep_, nsopi_, nsopi_, a_alpha_h ^ b_alpha_h));
         D->zero();
         double** D_h = D->pointer(b_alpha_h);
         for (int m = 0; m < nsopi_[b_alpha_h]; ++m){

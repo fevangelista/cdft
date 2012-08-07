@@ -558,13 +558,13 @@ bool UCKS::test_convergency()
         if(energy_test and density_test and constraint_test){
             if(do_excitation){
                 spin_adapt_mixed_excitation();
-                double E_T = compute_triplet_correction();
-                double exc_energy = E_ - E_T - ground_state_energy;
-                fprintf(outfile,"  Excited triplet state : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
-                        exc_energy,exc_energy * _hartree2ev, exc_energy * _hartree2wavenumbers);
-                exc_energy = E_ + E_T - ground_state_energy;
-                fprintf(outfile,"  Excited singlet state : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
-                        exc_energy,exc_energy * _hartree2ev, exc_energy * _hartree2wavenumbers);
+//                double E_T = compute_triplet_correction();
+//                double exc_energy = E_ - E_T - ground_state_energy;
+//                fprintf(outfile,"  Excited triplet state : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+//                        exc_energy,exc_energy * _hartree2ev, exc_energy * _hartree2wavenumbers);
+//                exc_energy = E_ + E_T - ground_state_energy;
+//                fprintf(outfile,"  Excited singlet state : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+//                        exc_energy,exc_energy * _hartree2ev, exc_energy * _hartree2wavenumbers);
             }
             return true;
         }else{
@@ -594,6 +594,12 @@ void UCKS::spin_adapt_mixed_excitation()
     std::pair<double,double> M12 = matrix_element(D1,D2);
     double S12 = M12.first;
     double H12 = M12.second;
+    double exc_energy = E_ - H12 - ground_state_energy;
+    fprintf(outfile,"  Excited triplet state : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+            exc_energy,exc_energy * _hartree2ev, exc_energy * _hartree2wavenumbers);
+    exc_energy = E_ + H12 - ground_state_energy;
+    fprintf(outfile,"  Excited singlet state : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+            exc_energy,exc_energy * _hartree2ev, exc_energy * _hartree2wavenumbers);
 }
 
 double UCKS::compute_triplet_correction()
