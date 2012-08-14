@@ -4,6 +4,7 @@
 #include <libparallel/parallel.h>
 #include <liboptions/liboptions.h>
 #include <libmints/mints.h>
+#include <libmints/writer.h>
 #include <libpsio/psio.hpp>
 #include <libciomr/libciomr.h>
 #include "ucks.h"
@@ -67,7 +68,7 @@ PsiReturnType cks(Options& options)
     tstart();
 
     boost::shared_ptr<PSIO> psio = PSIO::shared_object();
-
+    boost::shared_ptr<Wavefunction> ref_scf;
     std::string reference = options.get_str("REFERENCE");
     std::vector<double> energies;
 
@@ -75,9 +76,14 @@ PsiReturnType cks(Options& options)
         throw InputException("Constrained RKS is not implemented ", "REFERENCE to UKS", __FILE__, __LINE__);
     }else if (reference == "UKS") {
         // Run a ground state computation first
-        boost::shared_ptr<UCKS> ref_scf = boost::shared_ptr<UCKS>(new UCKS(options, psio));
+        ref_scf = boost::shared_ptr<Wavefunction>(new UCKS(options, psio));
         Process::environment.set_wavefunction(ref_scf);
         double gs_energy = ref_scf->compute_energy();
+        // Print a molden file
+        if ( options["MOLDEN_FILE"].has_changed() ) {
+           boost::shared_ptr<MoldenWriter> molden(new MoldenWriter(ref_scf));
+           molden->write("0." + options.get_str("MOLDEN_FILE"));
+        }
         energies.push_back(gs_energy);
 
         // Count the number of excited state computations
@@ -90,9 +96,16 @@ PsiReturnType cks(Options& options)
         int nholes = 0;
         int nparticles = 0;
         for(int state = 0; state < nexcited; ++state){
-            boost::shared_ptr<UCKS> new_scf = boost::shared_ptr<UCKS>(new UCKS(options,psio,ref_scf));
+            boost::shared_ptr<UCKS> ref_ucks = boost::shared_ptr<UCKS>( static_cast<UCKS*>(ref_scf.get()) );
+            boost::shared_ptr<Wavefunction> new_scf = boost::shared_ptr<Wavefunction>(new UCKS(options,psio,ref_ucks));
+            Process::environment.wavefunction().reset();
             Process::environment.set_wavefunction(new_scf);
             double new_energy = new_scf->compute_energy();
+            // Print a molden file
+            if ( options["MOLDEN_FILE"].has_changed() ) {
+               boost::shared_ptr<MoldenWriter> molden(new MoldenWriter(new_scf));
+               molden->write(to_string(state + 1) + "." + options.get_str("MOLDEN_FILE"));
+            }
             energies.push_back(new_energy);
             ref_scf = new_scf;
         }
@@ -100,22 +113,22 @@ PsiReturnType cks(Options& options)
         throw InputException("Unknown reference " + reference, "REFERENCE", __FILE__, __LINE__);
     }
 
-    // Print the excitation energies
-    for(int state = 1; state < static_cast<int>(energies.size()); ++state){
-        double exc_energy = energies[state] - energies[0];
-        fprintf(outfile,"  Excited state %d : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
-                state,exc_energy,exc_energy * _hartree2ev, exc_energy * _hartree2wavenumbers);
-    }
+//    // Print the excitation energies
+//    for(int state = 1; state < static_cast<int>(energies.size()); ++state){
+//        double exc_energy = energies[state] - energies[0];
+//        fprintf(outfile,"  Excited state %d : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+//                state,exc_energy,exc_energy * _hartree2ev, exc_energy * _hartree2wavenumbers);
+//    }
 
     // Set this early because the callback mechanism uses it.
     Process::environment.wavefunction().reset();
 
     Communicator::world->sync();
 
-    // Set some environment variables
-    Process::environment.globals["SCF TOTAL ENERGY"] = energies.back();
-    Process::environment.globals["CURRENT ENERGY"] = energies.back();
-    Process::environment.globals["CURRENT REFERENCE ENERGY"] = energies[0];
+//    // Set some environment variables
+//    Process::environment.globals["SCF TOTAL ENERGY"] = energies.back();
+//    Process::environment.globals["CURRENT ENERGY"] = energies.back();
+//    Process::environment.globals["CURRENT REFERENCE ENERGY"] = energies[0];
 
     // Shut down psi.
 

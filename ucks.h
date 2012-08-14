@@ -4,7 +4,6 @@
 #include "boost/tuple/tuple.hpp"
 #include <libscf_solver/ks.h>
 #include <constraint.h>
-#include <excited_state.h>
 #include <determinant.h>
 
 namespace psi{
@@ -54,30 +53,16 @@ protected:
     // Excitation energy
     /// Compute an excited state as an optimal singly excited state
     bool do_excitation;
-    /// Find the optimal hole?
-    bool do_constrained_hole;
-    /// Find the optimal particle?
-    bool do_constrained_part;
-    /// Relax the spectator orbitals?
-    bool do_relax_spectators;
     /// Ground state energy
     double ground_state_energy;
     /// Number of occupied orbitals to project out
     int nexclude_occ;
     /// Number of virtual orbitals to project out
     int nexclude_vir;
-    /// The occupation of the alpha orbitals
-    SharedVector aocc_num_;
-    /// The occupation of the beta orbitals
-    SharedVector bocc_num_;
 
     // Information about the excited states
     /// Determinant information for each electronic state
     std::vector<SharedDeterminant> dets;
-    /// Details of the excited states
-    SharedExcitedState current_excited_state;
-    /// Details of the other excited states
-    std::vector<SharedExcitedState> excited_states;
 
     /// The ground state scf object
     boost::shared_ptr<UCKS> ref_scf_;
@@ -110,12 +95,6 @@ protected:
     SharedMatrix TempMatrix2;
     /// A temporary vector
     SharedVector TempVector;
-    /// SVD temporary matrix V
-    SharedMatrix svdV;
-    /// SVD temporary matrix U
-    SharedMatrix svdU;
-    /// SVD temporary vector sigma
-    SharedVector svds;
 
     /// A copy of the one-electron potential
     SharedMatrix H_copy;
@@ -167,12 +146,8 @@ protected:
     void form_C_CP_algorithm();
     /// The constrained hole/particle algorithm for computing the orbitals
     void form_C_CHP_algorithm();
-    /// Compute the overlap of this solution to the n-th state
-    double compute_overlap(int n);
     /// Compute a correction for the mixed excited states
     double compute_triplet_correction();
-    /// Compute the corresponding orbitals for the alpha-beta MOs
-    void corresponding_ab_mos();
     /// Compute the singlet and triplet energy of a mixed excited state
     void spin_adapt_mixed_excitation();
     /// Compute the corresponding orbitals for a pair of MO sets

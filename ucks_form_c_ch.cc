@@ -24,8 +24,10 @@ void UCKS::form_C_CH_algorithm()
     int nstate = static_cast<int>(dets.size());
     fprintf(outfile,"  Computing %d optimal hole orbitals\n",nstate);fflush(outfile);
 
-    // Save the hole information in a ExcitedState object
-    current_excited_state = SharedExcitedState(new ExcitedState(nirrep_));
+    // Save the hole information
+    Dimension aholepi(nirrep_,"Alpha holes per irrep");
+    std::vector<SharedVector> holes_Ca;
+    std::vector<int> holes_h;
 
     // Compute the hole states
     for (int m = 0; m < nstate; ++m){
@@ -60,25 +62,28 @@ void UCKS::form_C_CH_algorithm()
                         m,hole_h,hole_mo,hole_energy);
 
         // Compute the hole orbital
-        TempVector->zero();
+        SharedVector hole_Ca = factory_->create_shared_vector("Hole");
         for (int p = 0; p < nsopi_[hole_h]; ++p){
             double c_p = 0.0;
             for (int i = 0; i < dets[m]->nalphapi()[hole_h]; ++i){
                 c_p += dets[m]->Ca()->get(hole_h,p,i) * Uo_->get(hole_h,i,hole_mo) ;
             }
-            TempVector->set(hole_h,p,c_p);
+            hole_Ca->set(hole_h,p,c_p);
         }
-        current_excited_state->add_hole(hole_h,TempVector,hole_energy,true);
+        holes_Ca.push_back(hole_Ca);
+        holes_h.push_back(hole_h);
+        aholepi[hole_h] += 1;
     }
 
     // Put the hole orbitals in Ch
-    std::vector<int> aholepi = current_excited_state->aholepi();
+//    std::vector<int> aholepi = current_excited_state->aholepi();
     SharedMatrix Ch = SharedMatrix(new Matrix("Ch",nsopi_,aholepi));
     SharedMatrix Cho = SharedMatrix(new Matrix("Cho",nsopi_,aholepi));
     std::vector<int> offset(nirrep_,0);
     for (int m = 0; m < nstate; ++m){
-        int h = current_excited_state->ah_sym(m);
-        Ch->set_column(h,offset[h],current_excited_state->get_hole(m,true));
+        //int h = current_excited_state->ah_sym(m);
+        int h = holes_h[m];
+        Ch->set_column(h,offset[h],holes_Ca[m]);
         offset[h] += 1;
     }
 
@@ -107,7 +112,6 @@ void UCKS::form_C_CH_algorithm()
     // Form the projector onto the orbitals orthogonal to the particles in the ground state mo representation
     TempMatrix->zero();
     TempMatrix->gemm(false,true,1.0,Cho,Cho,0.0);
-    TempMatrix->print();
     TempMatrix->transform(S_);
     TempMatrix->transform(dets[0]->Ca());
     TempMatrix2->identity();
@@ -120,7 +124,7 @@ void UCKS::form_C_CH_algorithm()
     Ca_->zero();
     Ca_->gemm(false,false,1.0,dets[0]->Ca(),TempMatrix2,0.0);
 
-    epsilon_a_->print();
+//    epsilon_a_->print();
 
     std::vector<boost::tuple<double,int,int> > sorted_spectators;
     for (int h = 0; h < nirrep_; ++h){
@@ -144,7 +148,6 @@ void UCKS::form_C_CH_algorithm()
             }
         }
     }
-    print_occupation();
     // At this point the orbitals are sorted according to the energy but we
     // want to make sure that the hole MO appear where they should, that is
     // the holes in the virtual space.
@@ -181,7 +184,7 @@ void UCKS::form_C_CH_algorithm()
     Ca_->copy(TempMatrix);
     epsilon_a_->copy(TempVector.get());
 
-    Ca_->print();
+//    Ca_->print();
     int old_socc[8];
     int old_docc[8];
     for(int h = 0; h < nirrep_; ++h){

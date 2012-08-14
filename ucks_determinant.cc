@@ -19,22 +19,6 @@ using namespace psi;
 
 namespace psi{ namespace scf{
 
-boost::tuple<SharedMatrix, SharedVector, SharedMatrix> UCKS::my_svd_temps(SharedMatrix M)
-{
-    Dimension m = M->rowspi();
-    Dimension n = M->colspi();
-    Dimension rank(nirrep_);
-    for (int h = 0; h < nirrep_; h++) {
-        int m_h = m[h];
-        int n_h = n[h ^ M->symmetry()];
-        rank[h] = std::min(m_h,n_h);
-    }
-    SharedMatrix U(new Matrix("U", m, m));
-    SharedVector S(new Vector("S", rank));
-    SharedMatrix V(new Matrix("V", n, n));
-    return boost::tuple<SharedMatrix, SharedVector, SharedMatrix>(U,S,V);
-}
-
 std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDeterminant B)
 {
     double overlap = 0.0;
@@ -51,8 +35,8 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
     double detUVbeta = cbeta.get<3>();
     SharedVector s_a = calpha.get<2>();
     SharedVector s_b = cbeta.get<2>();
-    s_a->print();
-    s_b->print();
+//    s_a->print();
+//    s_b->print();
     // Compute the number of noncoincidences
     double noncoincidence_threshold = 1.0e-4;
 
@@ -107,25 +91,26 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
             }
         }
     }
-    fprintf(outfile,"\n A(alpha): ");
+    fprintf(outfile,"\n  Corresponding orbitals:\n");
+    fprintf(outfile,"  A(alpha): ");
     for (size_t k = 0; k < Aalpha_nonc.size(); ++k){
         int i_h = Aalpha_nonc[k].first;
         int i_mo = Aalpha_nonc[k].second;
         fprintf(outfile,"%1d %3d",i_h,i_mo);
     }
-    fprintf(outfile,"\n B(alpha): ");
+    fprintf(outfile,"\n  B(alpha): ");
     for (size_t k = 0; k < Balpha_nonc.size(); ++k){
         int i_h = Balpha_nonc[k].first;
         int i_mo = Balpha_nonc[k].second;
         fprintf(outfile,"%1d %3d",i_h,i_mo);
     }
-    fprintf(outfile,"\n A(beta):  ");
+    fprintf(outfile,"\n  A(beta):  ");
     for (size_t k = 0; k < Abeta_nonc.size(); ++k){
         int i_h = Abeta_nonc[k].first;
         int i_mo = Abeta_nonc[k].second;
         fprintf(outfile,"%1d %3d",i_h,i_mo);
     }
-    fprintf(outfile,"\n B(beta):  ");
+    fprintf(outfile,"\n  B(beta):  ");
     for (size_t k = 0; k < Bbeta_nonc.size(); ++k){
         int i_h = Bbeta_nonc[k].first;
         int i_mo = Bbeta_nonc[k].second;
@@ -164,7 +149,6 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
         A_beta_dim[0] = 1;
         Dimension B_beta_dim(nirrep_,"B_beta_dim");
         B_beta_dim[0] = 1;
-        A_beta_dim.print();
         SharedMatrix A_b(new Matrix("A_b", nsopi_, A_beta_dim,a_beta_h));
         SharedMatrix B_b(new Matrix("B_b", nsopi_, B_beta_dim,b_beta_h));
         for (int m = 0; m < nsopi_[a_beta_h]; ++m){
@@ -181,7 +165,6 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
         C_right.push_back(A_b);
         jk->compute();
         SharedMatrix Jnew = jk->J()[0];
-        Jnew->print();
 
         SharedMatrix D = SharedMatrix(new Matrix("D",nirrep_, nsopi_, nsopi_, a_alpha_h ^ b_alpha_h));
         D->zero();
@@ -227,14 +210,14 @@ UCKS::corresponding_orbitals(SharedMatrix A, SharedMatrix B, Dimension dima, Dim
         }
     }
     // SVD <B|S|A>
-    boost::tuple<SharedMatrix, SharedVector, SharedMatrix> UsV = my_svd_temps(Sba);
+    boost::tuple<SharedMatrix, SharedVector, SharedMatrix> UsV = Sba->svd_a_temps();
     SharedMatrix U = UsV.get<0>();
     SharedVector sigma = UsV.get<1>();
     SharedMatrix V = UsV.get<2>();
     Sba->svd_a(U,sigma,V);
-    sigma->print();
-    U->print();
-    V->print();
+//    sigma->print();
+//    U->print();
+//    V->print();
 
     // II. Transform the occupied orbitals to the new representation
     // Transform A with V (need to transpose V since svd returns V^T)

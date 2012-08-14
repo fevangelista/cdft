@@ -24,8 +24,10 @@ void UCKS::form_C_CP_algorithm()
     int nstate = static_cast<int>(dets.size());
     fprintf(outfile,"  Computing %d optimal particle orbitals\n",nstate);
 
-    // Save the particle information in a ExcitedState object
-    current_excited_state = SharedExcitedState(new ExcitedState(nirrep_));
+    // Save the particle information
+    Dimension apartpi(nirrep_,"Alpha particles per irrep");
+    std::vector<SharedVector> parts_Ca;
+    std::vector<int> parts_h;
 
     // Compute the particle states
     for (int m = 0; m < nstate; ++m){
@@ -50,26 +52,27 @@ void UCKS::form_C_CP_algorithm()
                 m,particle.get<1>(),particle.get<2>(),particle.get<0>());
 
         // Compute the particle orbital
-        TempVector->zero();
+        SharedVector part_Ca = factory_->create_shared_vector("Particle");
         for (int p = 0; p < nsopi_[part_h]; ++p){
             double c_p = 0.0;
             int maxa = nmopi_[part_h] - dets[m]->nalphapi()[part_h];
             for (int a = 0; a < maxa; ++a){
                 c_p += dets[m]->Ca()->get(part_h,p,dets[m]->nalphapi()[part_h] + a) * Uv_->get(part_h,a,part_mo) ;
             }
-            TempVector->set(part_h,p,c_p);
+            part_Ca->set(part_h,p,c_p);
         }
-        current_excited_state->add_particle(part_h,TempVector,particle.get<0>(),true);
+        parts_Ca.push_back(part_Ca);
+        parts_h.push_back(part_h);
+        apartpi[part_h] += 1;
     }
 
     // Put the particle orbitals in Cp
-    std::vector<int> apartpi = current_excited_state->apartpi();
     SharedMatrix Cp = SharedMatrix(new Matrix("Cp",nsopi_,apartpi));
     SharedMatrix Cpo = SharedMatrix(new Matrix("Cpo",nsopi_,apartpi));
     std::vector<int> offset(nirrep_,0);
     for (int m = 0; m < nstate; ++m){
-        int h = current_excited_state->ap_sym(m);
-        Cp->set_column(h,offset[h],current_excited_state->get_particle(m,true));
+        int h = parts_h[m];
+        Cp->set_column(h,offset[h],parts_Ca[m]);
         offset[h] += 1;
     }
 //    Cp->print();
