@@ -3,6 +3,7 @@
 #include <physconst.h>
 #include <libmints/view.h>
 #include <libmints/mints.h>
+#include <libtrans/integraltransform.h>
 #include <libfock/apps.h>
 #include <libfock/v.h>
 #include <libfock/jk.h>
@@ -96,25 +97,25 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
     for (size_t k = 0; k < Aalpha_nonc.size(); ++k){
         int i_h = Aalpha_nonc[k].first;
         int i_mo = Aalpha_nonc[k].second;
-        fprintf(outfile,"%1d %3d",i_h,i_mo);
+        fprintf(outfile," (%1d,%2d)",i_h,i_mo);
     }
     fprintf(outfile,"\n  B(alpha): ");
     for (size_t k = 0; k < Balpha_nonc.size(); ++k){
         int i_h = Balpha_nonc[k].first;
         int i_mo = Balpha_nonc[k].second;
-        fprintf(outfile,"%1d %3d",i_h,i_mo);
+        fprintf(outfile," (%1d,%2d)",i_h,i_mo);
     }
     fprintf(outfile,"\n  A(beta):  ");
     for (size_t k = 0; k < Abeta_nonc.size(); ++k){
         int i_h = Abeta_nonc[k].first;
         int i_mo = Abeta_nonc[k].second;
-        fprintf(outfile,"%1d %3d",i_h,i_mo);
+        fprintf(outfile," (%1d,%2d)",i_h,i_mo);
     }
     fprintf(outfile,"\n  B(beta):  ");
     for (size_t k = 0; k < Bbeta_nonc.size(); ++k){
         int i_h = Bbeta_nonc[k].first;
         int i_mo = Bbeta_nonc[k].second;
-        fprintf(outfile,"%1d %3d",i_h,i_mo);
+        fprintf(outfile," (%1d,%2d)",i_h,i_mo);
     }
 
     double Stilde = Sta * Stb * detUValpha * detUVbeta;
@@ -145,18 +146,43 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
         int b_beta_h   = Bbeta_nonc[0].first;
         int b_beta_mo  = Bbeta_nonc[0].second;
 
+ // Version 1
+//        Dimension A_beta_dim(nirrep_,"A_beta_dim");
+//        A_beta_dim[0] = 1;
+//        Dimension B_beta_dim(nirrep_,"B_beta_dim");
+//        B_beta_dim[0] = 1;
+//        SharedMatrix A_b(new Matrix("A_b", nsopi_, A_beta_dim,a_beta_h));
+//        SharedMatrix B_b(new Matrix("B_b", nsopi_, B_beta_dim,b_beta_h));
+//        A_b->print();
+//        B_b->print();
+//        fflush(outfile);
+//        for (int m = 0; m < nsopi_[a_beta_h]; ++m){
+//            A_b->set(a_beta_h,m,0,ACb->get(a_beta_h,m,a_beta_mo));
+//        }
+//        for (int m = 0; m < nsopi_[b_beta_h]; ++m){
+//            B_b->set(b_beta_h,m,0,BCb->get(b_beta_h,m,b_beta_mo));
+//        }
+
+
+// Version 2
+        // A_b absorbs the symmetry of B_b
         Dimension A_beta_dim(nirrep_,"A_beta_dim");
-        A_beta_dim[0] = 1;
+        A_beta_dim[b_beta_h] = 1;
+        // B_b is total symmetric
         Dimension B_beta_dim(nirrep_,"B_beta_dim");
-        B_beta_dim[0] = 1;
-        SharedMatrix A_b(new Matrix("A_b", nsopi_, A_beta_dim,a_beta_h));
-        SharedMatrix B_b(new Matrix("B_b", nsopi_, B_beta_dim,b_beta_h));
+        B_beta_dim[b_beta_h] = 1;
+        SharedMatrix A_b(new Matrix("A_b", nsopi_, A_beta_dim,a_beta_h ^ b_beta_h));
+        SharedMatrix B_b(new Matrix("B_b", nsopi_, B_beta_dim));
         for (int m = 0; m < nsopi_[a_beta_h]; ++m){
             A_b->set(a_beta_h,m,0,ACb->get(a_beta_h,m,a_beta_mo));
         }
         for (int m = 0; m < nsopi_[b_beta_h]; ++m){
             B_b->set(b_beta_h,m,0,BCb->get(b_beta_h,m,b_beta_mo));
         }
+
+//        A_b->print();
+//        B_b->print();
+//        fflush(outfile);
         std::vector<SharedMatrix>& C_left = jk->C_left();
         C_left.clear();
         C_left.push_back(B_b);
@@ -164,19 +190,173 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
         C_right.clear();
         C_right.push_back(A_b);
         jk->compute();
+        const std::vector<SharedMatrix >& Dn = jk->D();
+
         SharedMatrix Jnew = jk->J()[0];
 
         SharedMatrix D = SharedMatrix(new Matrix("D",nirrep_, nsopi_, nsopi_, a_alpha_h ^ b_alpha_h));
         D->zero();
         double** D_h = D->pointer(b_alpha_h);
-        for (int m = 0; m < nsopi_[b_alpha_h]; ++m){
-            for (int n = 0; n < nsopi_[a_alpha_h]; ++n){
+        double* Dp = &(D_h[0][0]);
+        for (int n = 0; n < nsopi_[a_alpha_h]; ++n){
+            for (int m = 0; m < nsopi_[b_alpha_h]; ++m){
                 D_h[m][n] = BCa->get(b_alpha_h,m,b_alpha_mo) * ACa->get(a_alpha_h,n,a_alpha_mo);
             }
         }
+//        Jnew->print();
+//        D->print();
         double twoelint = Jnew->vector_dot(D);
         hamiltonian = twoelint * Stilde;
         fprintf(outfile,"  Matrix element from libfock = %20.12f\n",twoelint);
+
+//        boost::shared_ptr<PetiteList> pet(new PetiteList(KS::basisset_, integral_));
+//        int nbf = KS::basisset_->nbf();
+//        SharedMatrix SO2AO_ = pet->sotoao();
+//        SharedMatrix Jnew_ao(new Matrix(nbf, nbf));
+//        Dn[0]->print();
+//        SO2AO_->print();
+//        fflush(outfile);
+
+//        Jnew_ao->remove_symmetry(Dn[0],SO2AO_);
+//        Jnew_ao->print();
+//        Jnew_ao->remove_symmetry(Jnew,SO2AO_);
+//        Jnew_ao->print();
+//        fflush(outfile);
+
+
+//        int maxi4 = INDEX4(nsopi_[0]+1,nsopi_[0]+1,nsopi_[0]+1,nsopi_[0]+1)+nsopi_[0]+1;
+//        double* integrals = new double[maxi4];
+//        for (int l = 0; l < maxi4; ++l){
+//            integrals[l] = 0.0;
+//        }
+
+//        IWL *iwl = new IWL(KS::psio_.get(), PSIF_SO_TEI, integral_threshold_, 1, 1);
+//        Label *lblptr = iwl->labels();
+//        Value *valptr = iwl->values();
+//        int labelIndex, pabs, qabs, rabs, sabs, prel, qrel, rrel, srel, psym, qsym, rsym, ssym;
+//        double value;
+//        bool lastBuffer;
+//        do{
+//            lastBuffer = iwl->last_buffer();
+//            for(int index = 0; index < iwl->buffer_count(); ++index){
+//                labelIndex = 4*index;
+//                pabs  = abs((int) lblptr[labelIndex++]);
+//                qabs  = (int) lblptr[labelIndex++];
+//                rabs  = (int) lblptr[labelIndex++];
+//                sabs  = (int) lblptr[labelIndex++];
+//                prel  = so2index_[pabs];
+//                qrel  = so2index_[qabs];
+//                rrel  = so2index_[rabs];
+//                srel  = so2index_[sabs];
+//                psym  = so2symblk_[pabs];
+//                qsym  = so2symblk_[qabs];
+//                rsym  = so2symblk_[rabs];
+//                ssym  = so2symblk_[sabs];
+//                value = (double) valptr[index];
+//                integrals[INDEX4(prel,qrel,rrel,srel)] = value;
+//            } /* end loop through current buffer */
+//            if(!lastBuffer) iwl->fetch();
+//        }while(!lastBuffer);
+//        iwl->set_keep_flag(1);
+//        delete iwl;
+//        double c2 = 0.0;
+
+//        SharedVector Ava = ACa->get_column(a_alpha_h,a_alpha_mo);
+//        SharedVector Bva = BCa->get_column(b_alpha_h,b_alpha_mo);
+//        SharedVector Avb = ACb->get_column(a_beta_h,a_beta_mo);
+//        SharedVector Bvb = BCb->get_column(b_beta_h,b_beta_mo);
+
+
+//        double* Ci = Bva->pointer();
+//        double* Cj = Ava->pointer();
+//        double* Ck = Bvb->pointer();
+//        double* Cl = Avb->pointer();
+//        for (int i = 0; i < nsopi_[0]; ++i){
+//            for (int j = 0; j < nsopi_[0]; ++j){
+//                for (int k = 0; k < nsopi_[0]; ++k){
+//                    for (int l = 0; l < nsopi_[0]; ++l){
+//                        c2 += integrals[INDEX4(i,j,k,l)] * Ci[i] * Cj[j] * Ck[k] * Cl[l];
+//                    }
+//                }
+//            }
+//        }
+//        delete[] integrals;
+//        fprintf(outfile,"  Matrix element from ints    = %20.12f\n",c2);
+
+//        {
+//        Dimension Aa_dim(nirrep_);
+//        Dimension Ab_dim(nirrep_);
+//        Dimension Ba_dim(nirrep_);
+//        Dimension Bb_dim(nirrep_);
+//        Aa_dim[a_alpha_h] = 1;
+//        Ab_dim[a_beta_h] = 1;
+//        Ba_dim[b_alpha_h] = 1;
+//        Bb_dim[b_beta_h] = 1;
+
+//        // Setting up and initialize the integraltransform object
+//        std::vector<boost::shared_ptr<MOSpace> > spaces;
+//        spaces.push_back(MOSpace::fzc);
+//        spaces.push_back(MOSpace::occ);
+//        spaces.push_back(MOSpace::vir);
+//        spaces.push_back(MOSpace::fzv);
+//        SharedMatrix Ama(new Matrix("F",nsopi_,Aa_dim));
+//        SharedMatrix Amb(new Matrix("F",nsopi_,Ab_dim));
+//        SharedMatrix Bma(new Matrix("F",nsopi_,Ba_dim));
+//        SharedMatrix Bmb(new Matrix("F",nsopi_,Bb_dim));
+
+//        SharedVector Ava = ACa->get_column(a_alpha_h,a_alpha_mo);
+//        SharedVector Bva = BCa->get_column(b_alpha_h,b_alpha_mo);
+//        SharedVector Avb = ACb->get_column(a_beta_h,a_beta_mo);
+//        SharedVector Bvb = BCb->get_column(b_beta_h,b_beta_mo);
+
+//        Ama->set_column(a_alpha_h,0,ACa->get_column(a_alpha_h,a_alpha_mo));
+//        Bma->set_column(b_alpha_h,0,BCa->get_column(b_alpha_h,b_alpha_mo));
+//        Amb->set_column(a_beta_h,0,ACb->get_column(a_beta_h,a_beta_mo));
+//        Bmb->set_column(b_beta_h,0,BCb->get_column(b_beta_h,b_beta_mo));
+
+//        Ama->print();
+//        Bma->print();
+//        Amb->print();
+//        Bmb->print();
+//        IntegralTransform* ints_ = new IntegralTransform(Bma,Ama,Bmb,Amb,spaces,
+//                                                    IntegralTransform::Restricted,
+//                                                    IntegralTransform::IWLOnly,
+//                                                    IntegralTransform::QTOrder,
+//                                                    IntegralTransform::None);
+//        ints_->transform_tei(MOSpace::fzc, MOSpace::occ, MOSpace::vir, MOSpace::fzv);
+//        delete ints_;
+
+//        IWL *iwl = new IWL(KS::psio_.get(), PSIF_MO_TEI, integral_threshold_, 1, 1);
+//        Label *lblptr = iwl->labels();
+//        Value *valptr = iwl->values();
+//        int labelIndex, pabs, qabs, rabs, sabs, prel, qrel, rrel, srel, psym, qsym, rsym, ssym;
+//        double value;
+//        bool lastBuffer;
+//        do{
+//            lastBuffer = iwl->last_buffer();
+//            for(int index = 0; index < iwl->buffer_count(); ++index){
+//                labelIndex = 4*index;
+//                pabs  = abs((int) lblptr[labelIndex++]);
+//                qabs  = (int) lblptr[labelIndex++];
+//                rabs  = (int) lblptr[labelIndex++];
+//                sabs  = (int) lblptr[labelIndex++];
+//                prel  = so2index_[pabs];
+//                qrel  = so2index_[qabs];
+//                rrel  = so2index_[rabs];
+//                srel  = so2index_[sabs];
+//                psym  = so2symblk_[pabs];
+//                qsym  = so2symblk_[qabs];
+//                rsym  = so2symblk_[rabs];
+//                ssym  = so2symblk_[sabs];
+//                value = (double) valptr[index];
+//                fprintf(outfile,"  (%2d %2d | %2d %2d) = %20.12f\n",pabs,qabs,rabs,sabs,value);
+//            } /* end loop through current buffer */
+//            if(!lastBuffer) iwl->fetch();
+//        }while(!lastBuffer);
+//        iwl->set_keep_flag(1);
+//        delete iwl;
+
+//        }
     }else if(num_alpha_nonc == 2 and num_beta_nonc == 0){
         overlap = 0.0;
         throw FeatureNotImplemented("CKS", "H in the case of two alpha noncoincidences", __FILE__, __LINE__);

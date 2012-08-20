@@ -15,7 +15,6 @@ public:
     SharedMatrix Cb() {return Cb_;}
     const Dimension& nalphapi() {return nalphapi_;}
     const Dimension& nbetapi() {return nbetapi_;}
-    void spin_flip();
 private:
     Dimension nalphapi_;
     Dimension nbetapi_;

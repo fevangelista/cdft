@@ -520,11 +520,12 @@ bool UCKS::test_convergency()
 
     bool energy_test = fabs(ediff) < energy_threshold_;
     bool density_test = Drms_ < density_threshold_;
+    bool cycle_test = iteration_ > 5;
 
     if(optimize_Vc){
         bool constraint_test = gradW->norm() < gradW_threshold_;
         constraint_optimization();
-        if(energy_test and density_test and constraint_test){
+        if(energy_test and density_test and constraint_test and cycle_test){
             if(do_excitation){
                 spin_adapt_mixed_excitation();
 //                double E_T = compute_triplet_correction();
@@ -540,7 +541,7 @@ bool UCKS::test_convergency()
             return false;
         }
     }else{
-        if(energy_test and density_test){
+        if(energy_test and density_test and cycle_test){
 //            if(do_excitation){
 //                double E_T = compute_triplet_correction();
 //                fprintf(outfile,"  Energy corrected for triplet component = %20.12f (%.12f)",2.0 * E_ - E_T,E_T);

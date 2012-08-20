@@ -1,16 +1,30 @@
-//#include <cucks.h>
-//#include <libmints/view.h>
-//#include <libmints/mints.h>
-//#include <libfock/apps.h>
-//#include <libfock/v.h>
-//#include <libfock/jk.h>
-//#include <libdisp/dispersion.h>
-//#include <liboptions/liboptions.h>
-//#include <libciomr/libciomr.h>
-//#include <libqt/qt.h>
-//#include "boost/tuple/tuple.hpp"
-//#include "boost/tuple/tuple_comparison.hpp"
+#include <cucks.h>
+#include <libmints/view.h>
+#include <libmints/mints.h>
+#include <libfock/apps.h>
+#include <libfock/v.h>
+#include <libfock/jk.h>
+#include <libdisp/dispersion.h>
+#include <liboptions/liboptions.h>
+#include <libciomr/libciomr.h>
+#include <libqt/qt.h>
+#include "boost/tuple/tuple.hpp"
+#include "boost/tuple/tuple_comparison.hpp"
 
+using namespace psi;
+
+namespace psi{ namespace scf{
+
+CUCKS::CUCKS(Options &options, boost::shared_ptr<PSIO> psio)
+: UKS(options, psio)
+{
+}
+
+CUCKS::~CUCKS()
+{
+}
+
+}}
 //using namespace psi;
 
 //namespace psi{ namespace scf{

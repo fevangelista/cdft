@@ -8,6 +8,7 @@
 #include <libpsio/psio.hpp>
 #include <libciomr/libciomr.h>
 #include "ucks.h"
+#include "cucks.h"
 
 INIT_PLUGIN
 
@@ -39,7 +40,7 @@ int read_options(std::string name, Options& options)
         ``CHP`` (constrained hole/particle) which finds the optimal hole and
         particle orbitals while relaxing the other orbitals;
         ``CHP-F`` (frozen CHP) which is CHP without orbital relaxation.  Default is ``CHP``. -*/
-        options.add_str("CDFT_EXC_METHOD","CHP","CP CH CHP CHP-F");
+        options.add_str("CDFT_EXC_METHOD","CH","CP CH");// CHP CHP-F");
         // CP Constrained particle: find the optimal particle without relaxing
         /*- Select the excited hole to target -*/
         options.add_str("CDFT_EXC_HOLE","VALENCE","VALENCE CORE");
@@ -62,7 +63,57 @@ int read_options(std::string name, Options& options)
     return true;
 }
 
-extern "C" 
+//extern "C"
+//PsiReturnType cks(Options & options)
+//{
+//    tstart();
+
+//    boost::shared_ptr<PSIO> psio = PSIO::shared_object();
+
+//    std::string reference = options.get_str("REFERENCE");
+//    boost::shared_ptr<Wavefunction> scf;
+//    double energy;
+
+//    scf = boost::shared_ptr<Wavefunction>(new CUCKS(options, psio));
+
+//    // print the basis set
+//    if ( options.get_bool("PRINT_BASIS") ) {
+//       boost::shared_ptr<BasisSetParser> parser (new Gaussian94BasisSetParser());
+//       boost::shared_ptr<BasisSet> basisset = boost::shared_ptr<BasisSet>(BasisSet::construct(parser, Process::environment.molecule(), "BASIS"));
+//       basisset->print_detail();
+//    }
+
+//    // Set this early because the callback mechanism uses it.
+//    Process::environment.set_wavefunction(scf);
+
+//    energy = scf->compute_energy();
+
+//    Communicator::world->sync();
+
+//    // Print a molden file
+//    if ( options["MOLDEN_FILE"].has_changed() ) {
+//       boost::shared_ptr<MoldenWriter> molden(new MoldenWriter(scf));
+//       molden->write(options.get_str("MOLDEN_FILE"));
+//    }
+//    // Print molecular orbitals
+//    if ( options.get_bool("PRINT_MOS") ) {
+//       boost::shared_ptr<MOWriter> mo(new MOWriter(scf,options));
+//       mo->write();
+//    }
+
+//    // Set some environment variables
+//    Process::environment.globals["SCF TOTAL ENERGY"] = energy;
+//    Process::environment.globals["CURRENT ENERGY"] = energy;
+//    Process::environment.globals["CURRENT REFERENCE ENERGY"] = energy;
+
+//    // Shut down psi.
+
+//    tstop();
+
+//    return Success;
+//}
+
+extern "C"
 PsiReturnType cks(Options& options)
 {
     tstart();
@@ -112,7 +163,6 @@ PsiReturnType cks(Options& options)
     }else {
         throw InputException("Unknown reference " + reference, "REFERENCE", __FILE__, __LINE__);
     }
-
 //    // Print the excitation energies
 //    for(int state = 1; state < static_cast<int>(energies.size()); ++state){
 //        double exc_energy = energies[state] - energies[0];

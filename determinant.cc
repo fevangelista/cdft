@@ -15,10 +15,4 @@ Determinant::Determinant(SharedMatrix Ca, SharedMatrix Cb, Dimension nalphapi, D
 Determinant::~Determinant()
 {}
 
-void Determinant::spin_flip()
-{
-    std::swap(nalphapi_,nbetapi_);
-    std::swap(Ca_,Cb_);
-}
-
 }} // namespaces

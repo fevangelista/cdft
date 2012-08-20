@@ -1,6 +1,118 @@
 #ifndef JUNK_H
 #define JUNK_H
 
+
+double UCKS::compute_overlap(int n)
+{
+//    // Orthogonality test
+//    Temp->gemm(false,false,1.0,state_Da[0],S_,0.0);
+//    // DSC'
+//    Ua->gemm(false,false,1.0,Temp,Ca_,0.0);
+//    Ua->print();
+
+//    // Temp = 1 - DS
+//    Temp2->identity();
+//    Temp2->subtract(Temp);
+//    // (1 - DS)C'
+//    Ua->gemm(false,false,1.0,Temp2,Ca_,0.0);
+//    Ua->print();
+
+
+//    Temp->gemm(false,false,1.0,S_,Ca_,0.0);
+//    Ua->gemm(true,false,1.0,state_Da[n],Temp,0.0);
+//    Ua->print();
+//    // Orthogonality test
+//    Temp->gemm(false,false,1.0,PvFaPv_,Ca_,0.0);
+//    Ua->gemm(true,false,1.0,Ca_,Temp,0.0);
+//    Ua->print();
+
+//    // Alpha block
+//    TempMatrix->gemm(false,false,1.0,S_,Ca_,0.0);
+//    Ua->gemm(true,false,1.0,state_Ca[n],TempMatrix,0.0);
+//    //Ua->print();
+//    // Grab S_aa from Ua
+//    SharedMatrix S_aa = SharedMatrix(new Matrix("S_aa",state_nalphapi[n],nalphapi_));
+//    for (int h = 0; h < nirrep_; ++h) {
+//        int ngs_occ = dets[0]->nalphapi()[h];
+//        int nex_occ = nalphapi_[h];
+//        if (ngs_occ == 0 or nex_occ == 0) continue;
+//        double** Ua_h = Ua->pointer(h);
+//        double** S_aa_h = S_aa->pointer(h);
+//        for (int i = 0; i < ngs_occ; ++i){
+//            for (int j = 0; j < nex_occ; ++j){
+//                S_aa_h[i][j] = Ua_h[i][j];
+//            }
+//        }
+//    }
+
+//    double detS_aa = 1.0;
+//    double traceS2_aa = 0.0;
+//    {
+//        boost::tuple<SharedMatrix, SharedVector, SharedMatrix> UsV = S_aa->svd_temps();
+//        S_aa->svd(UsV.get<0>(),UsV.get<1>(),UsV.get<2>());
+//        if(dets[0]->nalphapi() == nalphapi_){
+//            for (int h = 0; h < nirrep_; ++h) {
+//                for (int i = 0; i < UsV.get<1>()->dim(h); ++i){
+//                    detS_aa *= UsV.get<1>()->get(h,i);
+//                }
+//            }
+//        }else{
+//            detS_aa = 0.0;
+//        }
+//        for (int h = 0; h < nirrep_; ++h) {
+//            for (int i = 0; i < UsV.get<1>()->dim(h); ++i){
+//                traceS2_aa += std::pow(UsV.get<1>()->get(h,i),2.0);
+//            }
+//        }
+//    }
+
+//    // Beta block
+//    TempMatrix->gemm(false,false,1.0,S_,Cb_,0.0);
+//    Ub->gemm(true,false,1.0,state_Cb[n],TempMatrix,0.0);
+
+//    // Grab S_bb from Ub
+//    SharedMatrix S_bb = SharedMatrix(new Matrix("S_bb",state_nbetapi[n],nbetapi_));
+
+//    for (int h = 0; h < nirrep_; ++h) {
+//        int ngs_occ = state_nbetapi[0][h];
+//        int nex_occ = nbetapi_[h];
+//        if (ngs_occ == 0 or nex_occ == 0) continue;
+//        double** Ub_h = Ub->pointer(h);
+//        double** S_bb_h = S_bb->pointer(h);
+//        for (int i = 0; i < ngs_occ; ++i){
+//            for (int j = 0; j < nex_occ; ++j){
+//                S_bb_h[i][j] = Ub_h[i][j];
+//            }
+//        }
+//    }
+//    double detS_bb = 1.0;
+//    double traceS2_bb = 0.0;
+//    {
+//        boost::tuple<SharedMatrix, SharedVector, SharedMatrix> UsV = S_bb->svd_temps();
+//        S_bb->svd(UsV.get<0>(),UsV.get<1>(),UsV.get<2>());
+//        if(state_nbetapi[0] == nbetapi_){
+//            for (int h = 0; h < nirrep_; ++h) {
+//                for (int i = 0; i < UsV.get<1>()->dim(h); ++i){
+//                    detS_bb *= UsV.get<1>()->get(h,i);
+//                }
+//            }
+//        }else{
+//            detS_bb = 0.0;
+//        }
+//        for (int h = 0; h < nirrep_; ++h) {
+//            for (int i = 0; i < UsV.get<1>()->dim(h); ++i){
+//                traceS2_bb += std::pow(UsV.get<1>()->get(h,i),2.0);
+//            }
+//        }
+//    }
+//    fprintf(outfile,"   det(S_aa) = %.6f det(S_bb) = %.6f  <Phi|Phi'> = %.6f\n",detS_aa,detS_bb,detS_aa * detS_bb);
+//    fprintf(outfile,"   <Phi'|Poa|Phi'> = %.6f  <Phi'|Pob|Phi'> = %.6f  <Phi'|Po|Phi'> = %.6f\n",nalpha_ - traceS2_aa,nbeta_ - traceS2_bb,nalpha_ - traceS2_aa + nbeta_ - traceS2_bb);
+//    TempMatrix->transform(state_Da[0],S_);
+//    TempMatrix2->transform(TempMatrix,Ca_);
+//    return (detS_aa * detS_bb);
+    return 0;
+}s
+
 void UCKS::form_C_CP_algorithm()
 {
 
