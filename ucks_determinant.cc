@@ -36,8 +36,7 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
     double detUVbeta = cbeta.get<3>();
     SharedVector s_a = calpha.get<2>();
     SharedVector s_b = cbeta.get<2>();
-//    s_a->print();
-//    s_b->print();
+
     // Compute the number of noncoincidences
     double noncoincidence_threshold = 1.0e-4;
 
@@ -122,6 +121,18 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
     fprintf(outfile,"\n  Stilde = %.6f\n",Stilde);
 
     boost::shared_ptr<JK> jk = JK::build_JK();
+//    boost::shared_ptr<BasisSetParser> parser(new Gaussian94BasisSetParser());
+//    boost::shared_ptr<BasisSet> primary = BasisSet::construct(parser, Process::environment.molecule(), "BASIS");
+//    boost::shared_ptr<BasisSet> auxiliary = BasisSet::construct(parser, primary->molecule(), "DF_BASIS_SCF");
+//    boost::shared_ptr<JK> jk(new DFJK(primary,auxiliary));
+//    // 800 MB Memory, 100 M doubles
+//    jk->set_memory(100000000L);
+//    // Cutoff of 1.0E-12
+//    jk->set_cutoff(1.0E-12);
+//    // Do J/K, Not wK (superfluous)
+//    jk->set_do_J(true);
+//    jk->set_do_K(true);
+//    jk->set_do_wK(false);
     jk->initialize();
 
     int num_alpha_nonc = static_cast<int>(Aalpha_nonc.size());
@@ -180,9 +191,6 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
             B_b->set(b_beta_h,m,0,BCb->get(b_beta_h,m,b_beta_mo));
         }
 
-//        A_b->print();
-//        B_b->print();
-//        fflush(outfile);
         std::vector<SharedMatrix>& C_left = jk->C_left();
         C_left.clear();
         C_left.push_back(B_b);
@@ -203,11 +211,136 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
                 D_h[m][n] = BCa->get(b_alpha_h,m,b_alpha_mo) * ACa->get(a_alpha_h,n,a_alpha_mo);
             }
         }
-//        Jnew->print();
-//        D->print();
         double twoelint = Jnew->vector_dot(D);
         hamiltonian = twoelint * Stilde;
         fprintf(outfile,"  Matrix element from libfock = %20.12f\n",twoelint);
+    }else if(num_alpha_nonc == 2 and num_beta_nonc == 0){
+        overlap = 0.0;
+        throw FeatureNotImplemented("CKS", "H in the case of two alpha noncoincidences", __FILE__, __LINE__);
+    }else if(num_alpha_nonc == 0 and num_beta_nonc == 2){
+        overlap = 0.0;
+        throw FeatureNotImplemented("CKS", "H in the case of two beta noncoincidences", __FILE__, __LINE__);
+    }
+    jk->finalize();
+    fflush(outfile);
+    return std::make_pair(overlap,hamiltonian);
+}
+
+boost::tuple<SharedMatrix,SharedMatrix,SharedVector,double>
+UCKS::corresponding_orbitals(SharedMatrix A, SharedMatrix B, Dimension dima, Dimension dimb)
+{
+    // Form <B|S|A>
+    TempMatrix->gemm(false,false,1.0,S_,A,0.0);
+    TempMatrix2->gemm(true,false,1.0,B,TempMatrix,0.0);
+
+    // Extract the occupied blocks only
+    SharedMatrix Sba = SharedMatrix(new Matrix("Sba",dimb,dima));
+    for (int h = 0; h < nirrep_; ++h) {
+        int naocc = dima[h];
+        int nbocc = dimb[h];
+        double** Sba_h = Sba->pointer(h);
+        double** S_h = TempMatrix2->pointer(h);
+        for (int i = 0; i < nbocc; ++i){
+            for (int j = 0; j < naocc; ++j){
+                Sba_h[i][j] = S_h[i][j];
+            }
+        }
+    }
+    // SVD <B|S|A>
+    boost::tuple<SharedMatrix, SharedVector, SharedMatrix> UsV = Sba->svd_a_temps();
+    SharedMatrix U = UsV.get<0>();
+    SharedVector sigma = UsV.get<1>();
+    SharedMatrix V = UsV.get<2>();
+    Sba->svd_a(U,sigma,V);
+//    sigma->print();
+//    U->print();
+//    V->print();
+
+    // II. Transform the occupied orbitals to the new representation
+    // Transform A with V (need to transpose V since svd returns V^T)
+    // Extract the
+    TempMatrix->identity();
+    for (int h = 0; h < nirrep_; ++h) {
+        int rows = V->rowdim(h);
+        int cols = V->coldim(h);
+        double** V_h = V->pointer(h);
+        double** T_h = TempMatrix->pointer(h);
+        for (int i = 0; i < rows; ++i){
+            for (int j = 0; j < cols; ++j){
+                T_h[i][j] = V_h[i][j];
+            }
+        }
+    }
+    TempMatrix2->gemm(false,true,1.0,A,TempMatrix,0.0);
+    SharedMatrix cA = SharedMatrix(new Matrix("Corresponding " + A->name(),A->rowspi(),dima));
+    copy_subblock(TempMatrix2,cA,cA->rowspi(),dima,true);
+
+    // Transform B with U
+    TempMatrix->identity();
+    for (int h = 0; h < nirrep_; ++h) {
+        int rows = U->rowdim(h);
+        int cols = U->coldim(h);
+        double** U_h = U->pointer(h);
+        double** T_h = TempMatrix->pointer(h);
+        for (int i = 0; i < rows; ++i){
+            for (int j = 0; j < cols; ++j){
+                T_h[i][j] = U_h[i][j];
+            }
+        }
+    }
+    TempMatrix2->gemm(false,false,1.0,B,TempMatrix,0.0);
+    SharedMatrix cB = SharedMatrix(new Matrix("Corresponding " + B->name(),B->rowspi(),dimb));
+    copy_subblock(TempMatrix2,cB,cB->rowspi(),dimb,true);
+
+
+    // Find the product of the determinants of U and V
+    double detU = 1.0;
+    for (int h = 0; h < nirrep_; ++h) {
+        int nmo = U->rowdim(h);
+        if(nmo > 1){
+            double d = 1.0;
+            int* indx = new int[nmo];
+            ludcmp(U->pointer(h),nmo,indx,&d);
+            detU *= d;
+            delete[] indx;
+        }
+    }
+    double detV = 1.0;
+    for (int h = 0; h < nirrep_; ++h) {
+        int nmo = V->rowdim(h);
+        if(nmo > 1){
+            double d = 1.0;
+            int* indx = new int[nmo];
+            ludcmp(V->pointer(h),nmo,indx,&d);
+            detV *= d;
+            delete[] indx;
+        }
+    }
+    fprintf(outfile,"\n det U = %f, det V = %f",detU,detV);
+    double detUV = detU * detV;
+    boost::tuple<SharedMatrix,SharedMatrix,SharedVector,double> result(cA,cB,sigma,detUV);
+    return result;
+}
+
+}} // Namespaces
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 //        boost::shared_ptr<PetiteList> pet(new PetiteList(KS::basisset_, integral_));
 //        int nbf = KS::basisset_->nbf();
@@ -357,130 +490,3 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
 //        delete iwl;
 
 //        }
-    }else if(num_alpha_nonc == 2 and num_beta_nonc == 0){
-        overlap = 0.0;
-        throw FeatureNotImplemented("CKS", "H in the case of two alpha noncoincidences", __FILE__, __LINE__);
-    }else if(num_alpha_nonc == 0 and num_beta_nonc == 2){
-        overlap = 0.0;
-        throw FeatureNotImplemented("CKS", "H in the case of two beta noncoincidences", __FILE__, __LINE__);
-    }
-    jk->finalize();
-    fflush(outfile);
-    return std::make_pair(overlap,hamiltonian);
-}
-
-boost::tuple<SharedMatrix,SharedMatrix,SharedVector,double>
-UCKS::corresponding_orbitals(SharedMatrix A, SharedMatrix B, Dimension dima, Dimension dimb)
-{
-    // Form <B|S|A>
-    TempMatrix->gemm(false,false,1.0,S_,A,0.0);
-    TempMatrix2->gemm(true,false,1.0,B,TempMatrix,0.0);
-
-    // Extract the occupied blocks only
-    SharedMatrix Sba = SharedMatrix(new Matrix("Sba",dimb,dima));
-    for (int h = 0; h < nirrep_; ++h) {
-        int naocc = dima[h];
-        int nbocc = dimb[h];
-        double** Sba_h = Sba->pointer(h);
-        double** S_h = TempMatrix2->pointer(h);
-        for (int i = 0; i < nbocc; ++i){
-            for (int j = 0; j < naocc; ++j){
-                Sba_h[i][j] = S_h[i][j];
-            }
-        }
-    }
-    // SVD <B|S|A>
-    boost::tuple<SharedMatrix, SharedVector, SharedMatrix> UsV = Sba->svd_a_temps();
-    SharedMatrix U = UsV.get<0>();
-    SharedVector sigma = UsV.get<1>();
-    SharedMatrix V = UsV.get<2>();
-    Sba->svd_a(U,sigma,V);
-//    sigma->print();
-//    U->print();
-//    V->print();
-
-    // II. Transform the occupied orbitals to the new representation
-    // Transform A with V (need to transpose V since svd returns V^T)
-    // Extract the
-    TempMatrix->identity();
-    for (int h = 0; h < nirrep_; ++h) {
-        int rows = V->rowdim(h);
-        int cols = V->coldim(h);
-        double** V_h = V->pointer(h);
-        double** T_h = TempMatrix->pointer(h);
-        for (int i = 0; i < rows; ++i){
-            for (int j = 0; j < cols; ++j){
-                T_h[i][j] = V_h[i][j];
-            }
-        }
-    }
-    TempMatrix2->gemm(false,true,1.0,A,TempMatrix,0.0);
-    SharedMatrix cA = SharedMatrix(new Matrix("Corresponding " + A->name(),A->rowspi(),dima));
-    copy_subblock(TempMatrix2,cA,cA->rowspi(),dima,true);
-
-    // Transform B with U
-    TempMatrix->identity();
-    for (int h = 0; h < nirrep_; ++h) {
-        int rows = U->rowdim(h);
-        int cols = U->coldim(h);
-        double** U_h = U->pointer(h);
-        double** T_h = TempMatrix->pointer(h);
-        for (int i = 0; i < rows; ++i){
-            for (int j = 0; j < cols; ++j){
-                T_h[i][j] = U_h[i][j];
-            }
-        }
-    }
-    TempMatrix2->gemm(false,false,1.0,B,TempMatrix,0.0);
-    SharedMatrix cB = SharedMatrix(new Matrix("Corresponding " + B->name(),B->rowspi(),dimb));
-    copy_subblock(TempMatrix2,cB,cB->rowspi(),dimb,true);
-
-
-    // Find the product of the determinants of U and V
-    double detU = 1.0;
-    for (int h = 0; h < nirrep_; ++h) {
-        int nmo = U->rowdim(h);
-        if(nmo > 1){
-            double d = 1.0;
-            int* indx = new int[nmo];
-            ludcmp(U->pointer(h),nmo,indx,&d);
-            detU *= d;
-            delete[] indx;
-        }
-    }
-    double detV = 1.0;
-    for (int h = 0; h < nirrep_; ++h) {
-        int nmo = V->rowdim(h);
-        if(nmo > 1){
-            double d = 1.0;
-            int* indx = new int[nmo];
-            ludcmp(V->pointer(h),nmo,indx,&d);
-            detV *= d;
-            delete[] indx;
-        }
-    }
-    fprintf(outfile,"\n det U = %f, det V = %f",detU,detV);
-    double detUV = detU * detV;
-    boost::tuple<SharedMatrix,SharedMatrix,SharedVector,double> result(cA,cB,sigma,detUV);
-    return result;
-}
-
-}} // Namespaces
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

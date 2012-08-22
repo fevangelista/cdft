@@ -526,16 +526,15 @@ bool UCKS::test_convergency()
         bool constraint_test = gradW->norm() < gradW_threshold_;
         constraint_optimization();
         if(energy_test and density_test and constraint_test and cycle_test){
-            if(do_excitation){
-                spin_adapt_mixed_excitation();
-//                double E_T = compute_triplet_correction();
-//                double exc_energy = E_ - E_T - ground_state_energy;
-//                fprintf(outfile,"  Excited triplet state : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
-//                        exc_energy,exc_energy * _hartree2ev, exc_energy * _hartree2wavenumbers);
-//                exc_energy = E_ + E_T - ground_state_energy;
-//                fprintf(outfile,"  Excited singlet state : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
-//                        exc_energy,exc_energy * _hartree2ev, exc_energy * _hartree2wavenumbers);
-            }
+//            if(do_excitation){
+////                double E_T = compute_triplet_correction();
+////                double exc_energy = E_ - E_T - ground_state_energy;
+////                fprintf(outfile,"  Excited triplet state : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+////                        exc_energy,exc_energy * _hartree2ev, exc_energy * _hartree2wavenumbers);
+////                exc_energy = E_ + E_T - ground_state_energy;
+////                fprintf(outfile,"  Excited singlet state : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+////                        exc_energy,exc_energy * _hartree2ev, exc_energy * _hartree2wavenumbers);
+//            }
             return true;
         }else{
             return false;
@@ -555,6 +554,9 @@ bool UCKS::test_convergency()
 void UCKS::save_information()
 {
     dets.push_back(SharedDeterminant(new Determinant(Ca_,Cb_,nalphapi_,nbetapi_)));
+    if(do_excitation){
+        spin_adapt_mixed_excitation();
+    }
 }
 
 void UCKS::spin_adapt_mixed_excitation()
