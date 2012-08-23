@@ -96,6 +96,11 @@ protected:
     /// A temporary vector
     SharedVector TempVector;
 
+    /// The old alpha density matrix
+    SharedMatrix Dolda_;
+    /// The old beta density matrix
+    SharedMatrix Doldb_;
+
     /// A copy of the one-electron potential
     SharedMatrix H_copy;
     /// The Lagrange multipliers, Vc in Phys. Rev. A, 72, 024502 (2005)
@@ -166,6 +171,7 @@ protected:
     std::pair<double,double> matrix_element(SharedDeterminant A, SharedDeterminant B);
 
     // Overloaded UKS function
+    virtual void save_density_and_energy();
     /// Form the Fock matrix augmented with the constraints and/or projected
     virtual void form_F();
     /// Diagonalize the Fock matrix to get the MO coefficients
@@ -176,6 +182,7 @@ protected:
     //     virtual void form_D();
     /// Compute the value of the Lagrangian, at convergence it yields the energy
     virtual double compute_E();
+    virtual void damp_update();
     /// Test the convergence of the CKS procedure
     virtual bool test_convergency();
     /// Guess the starting MO

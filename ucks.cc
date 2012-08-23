@@ -99,6 +99,8 @@ void UCKS::init()
     TempMatrix2 = factory_->create_shared_matrix("Temp2");
     Ua = factory_->create_shared_matrix("U alpha");
     Ub = factory_->create_shared_matrix("U beta");
+    Dolda_ = factory_->create_shared_matrix("Dold alpha");
+    Doldb_ = factory_->create_shared_matrix("Dold beta");
     hessW = SharedMatrix(new Matrix("hessW",nconstraints,nconstraints));
     hessW_BFGS = SharedMatrix(new Matrix("hessW_BFGS",nconstraints,nconstraints));
 
@@ -204,6 +206,14 @@ void UCKS::build_W_frag()
     }
 }
 
+void UCKS::save_density_and_energy()
+{
+    Dtold_->copy(Dt_);
+    Dolda_->copy(Da_);
+    Doldb_->copy(Db_);
+    Eold_ = E_;
+}
+
 void UCKS::form_F()
 {
     // On the first iteration save H_
@@ -242,7 +252,7 @@ void UCKS::form_F()
     }
 }
 
-void UCKS::form_C()
+void UCKS:: form_C()
 {
     if(not do_excitation){
         // Ground state: use the default form_C
@@ -505,6 +515,28 @@ double UCKS::compute_E()
         fprintf(outfile, "    -D Energy =                %24.14f\n", dashD_E);
     }
     return Etotal;
+}
+
+void UCKS::damp_update()
+{
+    // Turn on damping only for excited state computations
+    if(do_excitation){
+        for(int h = 0; h < nirrep_; ++h){
+            for(int row = 0; row < Da_->rowspi(h); ++row){
+                for(int col = 0; col < Da_->colspi(h); ++col){
+                    double Dolda = damping_percentage_ * Dolda_->get(h, row, col);
+                    double Dnewa = (1.0 - damping_percentage_) * Da_->get(h, row, col);
+                    Da_->set(h, row, col, Dolda+Dnewa);
+                    double Doldb = damping_percentage_ * Doldb_->get(h, row, col);
+                    double Dnewb = (1.0 - damping_percentage_) * Db_->get(h, row, col);
+                    Db_->set(h, row, col, Doldb+Dnewb);
+                }
+            }
+        }
+        // Update Dt_
+        Dt_->copy(Da_);
+        Dt_->add(Db_);
+    }
 }
 
 bool UCKS::test_convergency()
