@@ -28,6 +28,8 @@ int read_options(std::string name, Options& options)
         options.add("ROOTS_PER_IRREP", new ArrayType());
         /*- Perform a correction of the triplet excitation energies -*/
         options.add_bool("TRIPLET_CORRECTION", true);
+        /*- Perform a correction of the triplet excitation energies -*/
+        options.add_bool("CDFT_SPIN_ADAPT", true);
         /*- Select the way the charges are computed -*/
         options.add_str("CONSTRAINT_TYPE","LOWDIN", "LOWDIN");
         /*- Select the algorithm to optimize the constraints -*/
@@ -48,6 +50,8 @@ int read_options(std::string name, Options& options)
         options.add_double("W_CONVERGENCE",1.0e-5);
         /*- The Lagrange multiplier for the SUHF formalism -*/
         options.add_double("CDFT_SUHF_LAMBDA",0.0);
+        /*- Charge constraints -*/
+        options.add_double("LEVEL_SHIFT",0.0);
 
 
         // Expert options

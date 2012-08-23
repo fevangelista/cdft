@@ -129,6 +129,8 @@ protected:
     double gradW_threshold_;
     /// Flag to save the one-electron part of the Hamiltonian
     bool save_H_;
+    /// A shift to apply to the virtual orbitals to improve convergence
+    double level_shift_;
 
     int nW_opt;
 

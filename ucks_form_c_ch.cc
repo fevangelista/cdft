@@ -119,7 +119,17 @@ void UCKS::form_C_CH_algorithm()
 
     // Form the Fock matrix in the GS basis, project our the holes, diagonalize it, and transform the MO coefficients
     TempMatrix->transform(Fa_,dets[0]->Ca());
+    // Apply a level shift to the Fock matrix
+    for (int h = 0; h < nirrep_; ++h){
+        int nocc = nalphapi_[h];
+        int nmo = nmopi_[h];
+        double** T_h = TempMatrix->pointer(h);
+        for (int p = nocc; p < nmo; ++p){
+            T_h[p][p] += level_shift_;
+        }
+    }
     TempMatrix->transform(TempMatrix2);
+
     TempMatrix->diagonalize(TempMatrix2,epsilon_a_);
     Ca_->zero();
     Ca_->gemm(false,false,1.0,dets[0]->Ca(),TempMatrix2,0.0);

@@ -40,8 +40,8 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
     // Compute the number of noncoincidences
     double noncoincidence_threshold = 1.0e-4;
 
-    std::vector<std::pair<int,int> > Aalpha_nonc;
-    std::vector<std::pair<int,int> > Balpha_nonc;
+    std::vector<boost::tuple<int,int,double> > Aalpha_nonc;
+    std::vector<boost::tuple<int,int,double> > Balpha_nonc;
     double Sta = 1.0;
     for (int h = 0; h < nirrep_; ++h){
         // Count all the numerical noncoincidences
@@ -50,8 +50,8 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
             if(std::fabs(s_a->get(h,p)) >= noncoincidence_threshold){
                 Sta *= s_a->get(h,p);
             }else{
-                Aalpha_nonc.push_back(std::make_pair(h,p));
-                Balpha_nonc.push_back(std::make_pair(h,p));
+                Aalpha_nonc.push_back(boost::make_tuple(h,p,s_a->get(h,p)));
+                Balpha_nonc.push_back(boost::make_tuple(h,p,s_a->get(h,p)));
             }
         }
         // Count all the symmetry noncoincidences
@@ -59,15 +59,15 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
         bool AgeB = A->nalphapi()[h] >= B->nalphapi()[h] ? true : false;
         for (int p = nmin; p < nmax; ++p){
             if(AgeB){
-                Aalpha_nonc.push_back(std::make_pair(h,p));
+                Aalpha_nonc.push_back(boost::make_tuple(h,p,0.0));
             }else{
-                Balpha_nonc.push_back(std::make_pair(h,p));
+                Balpha_nonc.push_back(boost::make_tuple(h,p,0.0));
             }
         }
     }
 
-    std::vector<std::pair<int,int> > Abeta_nonc;
-    std::vector<std::pair<int,int> > Bbeta_nonc;
+    std::vector<boost::tuple<int,int,double> > Abeta_nonc;
+    std::vector<boost::tuple<int,int,double> > Bbeta_nonc;
     double Stb = 1.0;
     for (int h = 0; h < nirrep_; ++h){
         // Count all the numerical noncoincidences
@@ -76,8 +76,8 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
             if(std::fabs(s_b->get(h,p)) >= noncoincidence_threshold){
                 Stb *= s_b->get(h,p);
             }else{
-                Abeta_nonc.push_back(std::make_pair(h,p));
-                Bbeta_nonc.push_back(std::make_pair(h,p));
+                Abeta_nonc.push_back(boost::make_tuple(h,p,s_b->get(h,p)));
+                Bbeta_nonc.push_back(boost::make_tuple(h,p,s_b->get(h,p)));
             }
         }
         // Count all the symmetry noncoincidences
@@ -85,40 +85,59 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
         bool AgeB = A->nbetapi()[h] >= B->nbetapi()[h] ? true : false;
         for (int p = nmin; p < nmax; ++p){
             if(AgeB){
-                Abeta_nonc.push_back(std::make_pair(h,p));
+                Abeta_nonc.push_back(boost::make_tuple(h,p,0.0));
             }else{
-                Bbeta_nonc.push_back(std::make_pair(h,p));
+                Bbeta_nonc.push_back(boost::make_tuple(h,p,0.0));
             }
         }
     }
     fprintf(outfile,"\n  Corresponding orbitals:\n");
     fprintf(outfile,"  A(alpha): ");
     for (size_t k = 0; k < Aalpha_nonc.size(); ++k){
-        int i_h = Aalpha_nonc[k].first;
-        int i_mo = Aalpha_nonc[k].second;
+        int i_h = Aalpha_nonc[k].get<0>();
+        int i_mo = Aalpha_nonc[k].get<1>();
         fprintf(outfile," (%1d,%2d)",i_h,i_mo);
     }
     fprintf(outfile,"\n  B(alpha): ");
     for (size_t k = 0; k < Balpha_nonc.size(); ++k){
-        int i_h = Balpha_nonc[k].first;
-        int i_mo = Balpha_nonc[k].second;
+        int i_h = Balpha_nonc[k].get<0>();
+        int i_mo = Balpha_nonc[k].get<1>();
         fprintf(outfile," (%1d,%2d)",i_h,i_mo);
+    }
+    fprintf(outfile,"\n  s(alpha): ");
+    for (size_t k = 0; k < Balpha_nonc.size(); ++k){
+        double i_s = Balpha_nonc[k].get<2>();
+        fprintf(outfile," %6e",i_s);
     }
     fprintf(outfile,"\n  A(beta):  ");
     for (size_t k = 0; k < Abeta_nonc.size(); ++k){
-        int i_h = Abeta_nonc[k].first;
-        int i_mo = Abeta_nonc[k].second;
+        int i_h = Abeta_nonc[k].get<0>();
+        int i_mo = Abeta_nonc[k].get<1>();
         fprintf(outfile," (%1d,%2d)",i_h,i_mo);
     }
     fprintf(outfile,"\n  B(beta):  ");
     for (size_t k = 0; k < Bbeta_nonc.size(); ++k){
-        int i_h = Bbeta_nonc[k].first;
-        int i_mo = Bbeta_nonc[k].second;
+        int i_h = Bbeta_nonc[k].get<0>();
+        int i_mo = Bbeta_nonc[k].get<1>();
         fprintf(outfile," (%1d,%2d)",i_h,i_mo);
+    }
+    fprintf(outfile,"\n  s(beta):  ");
+    for (size_t k = 0; k < Balpha_nonc.size(); ++k){
+        double i_s = Bbeta_nonc[k].get<2>();
+        fprintf(outfile," %6e",i_s);
     }
 
     double Stilde = Sta * Stb * detUValpha * detUVbeta;
     fprintf(outfile,"\n  Stilde = %.6f\n",Stilde);
+
+    int num_alpha_nonc = static_cast<int>(Aalpha_nonc.size());
+    int num_beta_nonc = static_cast<int>(Abeta_nonc.size());
+
+    if(num_alpha_nonc + num_beta_nonc != 2){
+        s_a->print();
+        s_b->print();
+    }
+    fflush(outfile);
 
     boost::shared_ptr<JK> jk = JK::build_JK();
 //    boost::shared_ptr<BasisSetParser> parser(new Gaussian94BasisSetParser());
@@ -134,48 +153,26 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
 //    jk->set_do_K(true);
 //    jk->set_do_wK(false);
     jk->initialize();
-
-    int num_alpha_nonc = static_cast<int>(Aalpha_nonc.size());
-    int num_beta_nonc = static_cast<int>(Abeta_nonc.size());
     if(num_alpha_nonc == 0 and num_beta_nonc == 0){
         overlap =Stilde;
-        throw FeatureNotImplemented("CKS", "H in the case of zero noncoincidences", __FILE__, __LINE__);
+//        throw FeatureNotImplemented("CKS", "H in the case of zero noncoincidences", __FILE__, __LINE__);
     }else if(num_alpha_nonc == 1 and num_beta_nonc == 0){
         overlap = 0.0;
-        throw FeatureNotImplemented("CKS", "H in the case of one noncoincidence", __FILE__, __LINE__);
+//        throw FeatureNotImplemented("CKS", "H in the case of one noncoincidence", __FILE__, __LINE__);
     }else if(num_alpha_nonc == 0 and num_beta_nonc == 1){
         overlap = 0.0;
-        throw FeatureNotImplemented("CKS", "H in the case of one noncoincidence", __FILE__, __LINE__);
+//        throw FeatureNotImplemented("CKS", "H in the case of one noncoincidence", __FILE__, __LINE__);
     }else if(num_alpha_nonc == 1 and num_beta_nonc == 1){
         overlap = 0.0;
-        int a_alpha_h  = Aalpha_nonc[0].first;
-        int a_alpha_mo = Aalpha_nonc[0].second;
-        int b_alpha_h  = Balpha_nonc[0].first;
-        int b_alpha_mo = Balpha_nonc[0].second;
-        int a_beta_h   = Abeta_nonc[0].first;
-        int a_beta_mo  = Abeta_nonc[0].second;
-        int b_beta_h   = Bbeta_nonc[0].first;
-        int b_beta_mo  = Bbeta_nonc[0].second;
+        int a_alpha_h  = Aalpha_nonc[0].get<0>();
+        int a_alpha_mo = Aalpha_nonc[0].get<1>();
+        int b_alpha_h  = Balpha_nonc[0].get<0>();
+        int b_alpha_mo = Balpha_nonc[0].get<1>();
+        int a_beta_h   = Abeta_nonc[0].get<0>();
+        int a_beta_mo  = Abeta_nonc[0].get<1>();
+        int b_beta_h   = Bbeta_nonc[0].get<0>();
+        int b_beta_mo  = Bbeta_nonc[0].get<1>();
 
- // Version 1
-//        Dimension A_beta_dim(nirrep_,"A_beta_dim");
-//        A_beta_dim[0] = 1;
-//        Dimension B_beta_dim(nirrep_,"B_beta_dim");
-//        B_beta_dim[0] = 1;
-//        SharedMatrix A_b(new Matrix("A_b", nsopi_, A_beta_dim,a_beta_h));
-//        SharedMatrix B_b(new Matrix("B_b", nsopi_, B_beta_dim,b_beta_h));
-//        A_b->print();
-//        B_b->print();
-//        fflush(outfile);
-//        for (int m = 0; m < nsopi_[a_beta_h]; ++m){
-//            A_b->set(a_beta_h,m,0,ACb->get(a_beta_h,m,a_beta_mo));
-//        }
-//        for (int m = 0; m < nsopi_[b_beta_h]; ++m){
-//            B_b->set(b_beta_h,m,0,BCb->get(b_beta_h,m,b_beta_mo));
-//        }
-
-
-// Version 2
         // A_b absorbs the symmetry of B_b
         Dimension A_beta_dim(nirrep_,"A_beta_dim");
         A_beta_dim[b_beta_h] = 1;
@@ -216,10 +213,10 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
         fprintf(outfile,"  Matrix element from libfock = %20.12f\n",twoelint);
     }else if(num_alpha_nonc == 2 and num_beta_nonc == 0){
         overlap = 0.0;
-        throw FeatureNotImplemented("CKS", "H in the case of two alpha noncoincidences", __FILE__, __LINE__);
+//        throw FeatureNotImplemented("CKS", "H in the case of two alpha noncoincidences", __FILE__, __LINE__);
     }else if(num_alpha_nonc == 0 and num_beta_nonc == 2){
         overlap = 0.0;
-        throw FeatureNotImplemented("CKS", "H in the case of two beta noncoincidences", __FILE__, __LINE__);
+//        throw FeatureNotImplemented("CKS", "H in the case of two beta noncoincidences", __FILE__, __LINE__);
     }
     jk->finalize();
     fflush(outfile);

@@ -55,6 +55,8 @@ void UCKS::init()
     fprintf(outfile,"  gradW threshold = :%9.2e\n",gradW_threshold_);
     nfrag = basisset()->molecule()->nfragments();
     fprintf(outfile,"  Number of fragments: %d\n",nfrag);
+    level_shift_ = KS::options_.get_double("LEVEL_SHIFT");
+    fprintf(outfile,"  Level shift: %f\n",level_shift_);
 
     build_W_frag();
 
@@ -521,14 +523,15 @@ void UCKS::damp_update()
 {
     // Turn on damping only for excited state computations
     if(do_excitation){
+        double damping = damping_percentage_ + iteration_ * 0.005;
         for(int h = 0; h < nirrep_; ++h){
             for(int row = 0; row < Da_->rowspi(h); ++row){
                 for(int col = 0; col < Da_->colspi(h); ++col){
-                    double Dolda = damping_percentage_ * Dolda_->get(h, row, col);
-                    double Dnewa = (1.0 - damping_percentage_) * Da_->get(h, row, col);
+                    double Dolda = damping * Dolda_->get(h, row, col);
+                    double Dnewa = (1.0 - damping) * Da_->get(h, row, col);
                     Da_->set(h, row, col, Dolda+Dnewa);
-                    double Doldb = damping_percentage_ * Doldb_->get(h, row, col);
-                    double Dnewb = (1.0 - damping_percentage_) * Db_->get(h, row, col);
+                    double Doldb = damping * Doldb_->get(h, row, col);
+                    double Dnewb = (1.0 - damping) * Db_->get(h, row, col);
                     Db_->set(h, row, col, Doldb+Dnewb);
                 }
             }
@@ -586,7 +589,10 @@ bool UCKS::test_convergency()
 void UCKS::save_information()
 {
     dets.push_back(SharedDeterminant(new Determinant(Ca_,Cb_,nalphapi_,nbetapi_)));
-    if(do_excitation){
+    double mixlet_exc_energy = E_ - ground_state_energy;
+    fprintf(outfile,"  Excited mixed state   : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+            mixlet_exc_energy,mixlet_exc_energy * _hartree2ev, mixlet_exc_energy * _hartree2wavenumbers);
+    if(do_excitation and KS::options_.get_bool("CDFT_SPIN_ADAPT")){
         spin_adapt_mixed_excitation();
     }
 }
@@ -598,12 +604,12 @@ void UCKS::spin_adapt_mixed_excitation()
     std::pair<double,double> M12 = matrix_element(D1,D2);
     double S12 = M12.first;
     double H12 = M12.second;
-    double exc_energy = E_ - H12 - ground_state_energy;
+    double triplet_exc_energy = E_ - H12 - ground_state_energy;
     fprintf(outfile,"  Excited triplet state : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
-            exc_energy,exc_energy * _hartree2ev, exc_energy * _hartree2wavenumbers);
-    exc_energy = E_ + H12 - ground_state_energy;
+            triplet_exc_energy,triplet_exc_energy * _hartree2ev, triplet_exc_energy * _hartree2wavenumbers);
+    double singlet_exc_energy = E_ + H12 - ground_state_energy;
     fprintf(outfile,"  Excited singlet state : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
-            exc_energy,exc_energy * _hartree2ev, exc_energy * _hartree2wavenumbers);
+            singlet_exc_energy,singlet_exc_energy * _hartree2ev, singlet_exc_energy * _hartree2wavenumbers);
 }
 
 double UCKS::compute_triplet_correction()
