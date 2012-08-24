@@ -523,7 +523,7 @@ void UCKS::damp_update()
 {
     // Turn on damping only for excited state computations
     if(do_excitation){
-        double damping = damping_percentage_ + iteration_ * 0.005;
+        double damping = damping_percentage_;
         for(int h = 0; h < nirrep_; ++h){
             for(int row = 0; row < Da_->rowspi(h); ++row){
                 for(int col = 0; col < Da_->colspi(h); ++col){
