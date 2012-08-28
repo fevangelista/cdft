@@ -364,7 +364,6 @@ void UCKS::form_C_CH_algorithm()
     }
 
     // Put the hole orbitals in Ch
-//    std::vector<int> aholepi = current_excited_state->aholepi();
     SharedMatrix Ch = SharedMatrix(new Matrix("Ch",nsopi_,aholepi));
     SharedMatrix Cho = SharedMatrix(new Matrix("Cho",nsopi_,aholepi));
     std::vector<int> offset(nirrep_,0);
@@ -396,6 +395,7 @@ void UCKS::form_C_CH_algorithm()
     }
     Cho->zero();
     Cho->gemm(false,false,1.0,Ch,Upp,0.0);
+    copy_block(Cho,Ch_,nsopi_,aholepi);
 
     // Form the projector onto the orbitals orthogonal to the particles in the ground state mo representation
     TempMatrix->zero();
@@ -559,15 +559,13 @@ void UCKS::form_C_CP_algorithm()
         Cp->set_column(h,offset[h],parts_Ca[m]);
         offset[h] += 1;
     }
-//    Cp->print();
     SharedMatrix Spp = SharedMatrix(new Matrix("Spp",apartpi,apartpi));
     SharedMatrix Upp = SharedMatrix(new Matrix("Upp",apartpi,apartpi));
     SharedVector spp = SharedVector(new Vector("spp",apartpi));
     Spp->transform(S_,Cp);
     Spp->print();
     Spp->diagonalize(Upp,spp);
-//    Upp->print();
-//    spp->print();
+
     double S_cutoff = 1.0e-2;
     // Form the transformation matrix X (in place of Upp)
     for (int h = 0; h < nirrep_; ++h) {
@@ -581,7 +579,9 @@ void UCKS::form_C_CP_algorithm()
             }
         }
     }
+    Cpo->zero();
     Cpo->gemm(false,false,1.0,Cp,Upp,0.0);
+    copy_block(Cpo,Cp_,nsopi_,apartpi);
 
     // Form the projector onto the orbitals orthogonal to the particles in the ground state mo representation
     TempMatrix->zero();
@@ -654,9 +654,6 @@ void UCKS::form_C_CP_algorithm()
 
     Ca_->copy(TempMatrix);
     epsilon_a_->copy(TempVector.get());
-
-//    Ca_->print();
-//    epsilon_a_->print();
 
     int old_socc[8];
     int old_docc[8];
