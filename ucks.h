@@ -177,25 +177,14 @@ protected:
 
     // Overloaded UKS function
     virtual void save_density_and_energy();
-    /// Form the Fock matrix augmented with the constraints and/or projected
     virtual void form_F();
-    /// Diagonalize the Fock matrix to get the MO coefficients
     virtual void form_C();
-
-
-    //     /// Computes the density matrix using the occupation numbers
-    //     virtual void form_D();
-    /// Compute the value of the Lagrangian, at convergence it yields the energy
     virtual double compute_E();
     virtual void damp_update();
-    /// Test the convergence of the CKS procedure
     virtual bool test_convergency();
-    /// Guess the starting MO
     virtual void guess();
-    /// Save information for successive excited states computations
     virtual void save_information();
-
-    boost::tuple<SharedMatrix, SharedVector, SharedMatrix> my_svd_temps(SharedMatrix M);
+    virtual void save_fock();
 };
 
 }} // Namespaces
