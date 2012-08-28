@@ -266,7 +266,6 @@ void UCKS::form_F()
         // Form the Fock matrix in the excited state basis, project out the h/p
         QFQ_->transform(Fa_,Ca_);
         QFQ_->transform(TempMatrix2);
-        QFQ_->print();
         moFeffa_->copy(QFQ_);
         // Form the Fock matrix in the excited state basis, project out the h/p
         TempMatrix->transform(Fb_,Cb_);
