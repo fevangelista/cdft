@@ -108,8 +108,13 @@ void UCKS::init()
 
     if(do_excitation){
         fprintf(outfile,"  Saving the reference orbitals for an excited state computation\n");
-        PoFPo_ = factory_->create_shared_matrix("PoFaPo");
-        PvFPv_ = factory_->create_shared_matrix("PvFaPv");
+        PoFPo_ = factory_->create_shared_matrix("PoFsPo");
+        PvFPv_ = factory_->create_shared_matrix("PvFPv");
+        QFQ_ = factory_->create_shared_matrix("QFQ");
+        Ch_ = factory_->create_shared_matrix("Hole MOs");
+        Cp_ = factory_->create_shared_matrix("Particle MOs");
+        moFeffa_ = factory_->create_shared_matrix("MO alpha Feff");
+        moFeffb_ = factory_->create_shared_matrix("MO beta Feff");
         Uo_ = factory_->create_shared_matrix("Uo");
         Uv_ = factory_->create_shared_matrix("Uv");
         lambda_o_ = factory_->create_shared_vector("lambda_o");
@@ -247,6 +252,36 @@ void UCKS::form_F()
     Fb_->add(Gb_);
 
     gradient_of_W();
+
+    // Form the effective Fock matrix
+    if(do_excitation){
+        // Form the projector onto the orbitals orthogonal to the holes and particles in the excited state mo representation
+        TempMatrix->zero();
+        TempMatrix->gemm(false,true,1.0,Ch_,Ch_,0.0);
+        TempMatrix->gemm(false,true,1.0,Cp_,Cp_,1.0);
+        TempMatrix->transform(S_);
+        TempMatrix->transform(Ca_);
+        TempMatrix2->identity();
+        TempMatrix2->subtract(TempMatrix);
+        // Form the Fock matrix in the excited state basis, project out the h/p
+        QFQ_->transform(Fa_,Ca_);
+        QFQ_->transform(TempMatrix2);
+        QFQ_->print();
+        moFeffa_->copy(QFQ_);
+        // Form the Fock matrix in the excited state basis, project out the h/p
+        TempMatrix->transform(Fb_,Cb_);
+        moFeffb_->copy(TempMatrix);
+////        QFQ_->print();
+//        // Form the projector onto the ground state occuppied space in the excited state mo representation
+//        TempMatrix->zero();
+//        TempMatrix->gemm(false,true,1.0,Ch_,Ch_,0.0);
+//        TempMatrix->gemm(false,true,1.0,Cp_,Cp_,1.0);
+//        TempMatrix->transform(S_);
+//        TempMatrix->transform(Ca_);
+//        TempMatrix2->identity();
+//        TempMatrix2->subtract(TempMatrix);
+    }
+
 
     if (debug_) {
         Fa_->print(outfile);
@@ -766,16 +801,16 @@ void UCKS::form_C_CHP_algorithm()
     }
 
     // Put the hole and particle orbitals in Ch
-    SharedMatrix Ch = SharedMatrix(new Matrix("Ch",nsopi_,aholepi));
-    SharedMatrix Cp = SharedMatrix(new Matrix("Cp",nsopi_,apartpi));
+//    SharedMatrix Ch = SharedMatrix(new Matrix("Ch",nsopi_,aholepi));
+//    SharedMatrix Cp = SharedMatrix(new Matrix("Cp",nsopi_,apartpi));
     std::vector<int> hole_offset(nirrep_,0);
     std::vector<int> part_offset(nirrep_,0);
     for (int m = 0; m < nstate; ++m){
         int hole_h = holes_h[m];
-        Ch->set_column(hole_h,hole_offset[hole_h],holes_Ca[m]);
+        Ch_->set_column(hole_h,hole_offset[hole_h],holes_Ca[m]);
         hole_offset[hole_h] += 1;
         int part_h = parts_h[m];
-        Cp->set_column(part_h,part_offset[part_h],parts_Ca[m]);
+        Cp_->set_column(part_h,part_offset[part_h],parts_Ca[m]);
         part_offset[part_h] += 1;
     }
 
@@ -842,8 +877,8 @@ void UCKS::form_C_CHP_algorithm()
 
     // Form the projector onto the orbitals orthogonal to the holes and particles in the excited state mo representation
     TempMatrix->zero();
-    TempMatrix->gemm(false,true,1.0,Ch,Ch,0.0);
-    TempMatrix->gemm(false,true,1.0,Cp,Cp,1.0);
+    TempMatrix->gemm(false,true,1.0,Ch_,Ch_,0.0);
+    TempMatrix->gemm(false,true,1.0,Cp_,Cp_,1.0);
     TempMatrix->transform(S_);
     TempMatrix->transform(Ca_);
     TempMatrix2->identity();
@@ -902,8 +937,8 @@ void UCKS::form_C_CHP_algorithm()
         int nmo = nmopi_[h];
         double** T_h = TempMatrix->pointer(h);
         double** C_h = Ca_->pointer(h);
-        double** Cp_h = Cp->pointer(h);
-        double** Ch_h = Ch->pointer(h);
+        double** Cp_h = Cp_->pointer(h);
+        double** Ch_h = Ch_->pointer(h);
         // First place the particles
         int m = 0;
         for (int p = 0; p < apartpi[h]; ++p){
@@ -1003,7 +1038,6 @@ void UCKS::form_C_CHP_algorithm()
         // Get the excited state orbitals: Cb(ex) = Cb(gs) * (Uo | Uv)
         Cb_->gemm(false,false,1.0,dets[0]->Cb(),TempMatrix,0.0);
     }
-
     if (debug_) {
         Ca_->print(outfile);
         Cb_->print(outfile);
@@ -1338,24 +1372,28 @@ void UCKS::save_information()
 
 void UCKS::save_fock()
 {
-    UHF::save_fock();
-//    if (initialized_diis_manager_ == false) {
-//        diis_manager_ = boost::shared_ptr<DIISManager>(new DIISManager(max_diis_vectors_, "HF DIIS vector", DIISManager::LargestError, DIISManager::OnDisk));
-//        diis_manager_->set_error_vector_size(2,
-//                                             DIISEntry::Matrix, Fa_.get(),
-//                                             DIISEntry::Matrix, Fb_.get());
-//        diis_manager_->set_vector_size(2,
-//                                       DIISEntry::Matrix, Fa_.get(),
-//                                       DIISEntry::Matrix, Fb_.get());
-//        initialized_diis_manager_ = true;
-//    }
+    if(not do_excitation){
+        UHF::save_fock();
+    }else{
+        if (initialized_diis_manager_ == false) {
+            diis_manager_ = boost::shared_ptr<DIISManager>(new DIISManager(max_diis_vectors_, "HF DIIS vector", DIISManager::LargestError, DIISManager::OnDisk));
+            diis_manager_->set_error_vector_size(2,
+                                                 DIISEntry::Matrix, Fa_.get(),
+                                                 DIISEntry::Matrix, Fb_.get());
+            diis_manager_->set_vector_size(2,
+                                           DIISEntry::Matrix, Fa_.get(),
+                                           DIISEntry::Matrix, Fb_.get());
+            initialized_diis_manager_ = true;
+        }
 
-////    SharedMatrix errvec(Feff_);
-////    errvec->zero_diagonal();
-////    errvec->back_transform(Ct_);
-////    diis_manager_->add_entry(2, errvec.get(), soFeff_.get());
-//   // !$@#$ Continue from here by defining the DIIS error vectors as block of F and transform them from the MO to the SO basis
-//    diis_manager_->add_entry(4, FDSmSDFa.get(), FDSmSDFb.get(), Fa_.get(), Fb_.get());
+        SharedMatrix errveca(moFeffa_);
+        errveca->zero_diagonal();
+        errveca->back_transform(Ca_);
+        SharedMatrix errvecb(moFeffb_);
+        errvecb->zero_diagonal();
+        errvecb->back_transform(Cb_);
+        diis_manager_->add_entry(4, errveca.get(), errvecb.get(), Fa_.get(), Fb_.get());
+    }
 }
 
 void UCKS::spin_adapt_mixed_excitation()

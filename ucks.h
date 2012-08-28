@@ -66,10 +66,20 @@ protected:
 
     /// The ground state scf object
     boost::shared_ptr<UCKS> ref_scf_;
-    /// The alpha Fock matrix projected onto the occupied space
+    /// The Fock matrix projected onto the occupied space
     SharedMatrix PoFPo_;
-    /// The alpha Fock matrix projected onto the virtual space
+    /// The Fock matrix projected onto the virtual space
     SharedMatrix PvFPv_;
+    /// The Fock matrix projected onto the spectator space
+    SharedMatrix QFQ_;
+    /// The holes
+    SharedMatrix Ch_;
+    /// The particles
+    SharedMatrix Cp_;
+    /// The effective alpha Fock matrix in the MO basis
+    SharedMatrix moFeffa_;
+    /// The effective beta Fock matrix in the MO basis
+    SharedMatrix moFeffb_;
     /// The eigenvectors of PoFPo
     SharedMatrix Uo_;
     /// The eigenvectors of PvFPv
@@ -78,6 +88,7 @@ protected:
     SharedVector lambda_o_;
     /// The eigenvalues of PvFPv
     SharedVector lambda_v_;
+
 
     /// The alpha penalty function
     SharedMatrix Pa;
