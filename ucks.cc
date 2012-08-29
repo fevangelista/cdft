@@ -107,6 +107,10 @@ void UCKS::init()
     hessW_BFGS = SharedMatrix(new Matrix("hessW_BFGS",nconstraints,nconstraints));
 
     if(do_excitation){
+        // Never recalculate the socc and docc arrays
+        input_socc_ = true;
+        input_docc_ = true;
+
         fprintf(outfile,"  Saving the reference orbitals for an excited state computation\n");
         PoFPo_ = factory_->create_shared_matrix("PoFsPo");
         PvFPv_ = factory_->create_shared_matrix("PvFPv");
@@ -150,8 +154,9 @@ UCKS::~UCKS()
 void UCKS::guess()
 {
     if(do_excitation){
+        iteration_ = 0;
         form_initial_C();
-        find_occupation();
+        //find_occupation();
         form_D();
         E_ = compute_initial_E();
     }else{
@@ -394,6 +399,7 @@ void UCKS::form_C_CH_algorithm()
     }
     Cho->zero();
     Cho->gemm(false,false,1.0,Ch,Upp,0.0);
+    Ch_->zero();
     copy_block(Cho,Ch_,nsopi_,aholepi);
 
     // Form the projector onto the orbitals orthogonal to the particles in the ground state mo representation
@@ -580,6 +586,7 @@ void UCKS::form_C_CP_algorithm()
     }
     Cpo->zero();
     Cpo->gemm(false,false,1.0,Cp,Upp,0.0);
+    Cp_->zero();
     copy_block(Cpo,Cp_,nsopi_,apartpi);
 
     // Form the projector onto the orbitals orthogonal to the particles in the ground state mo representation
@@ -732,6 +739,22 @@ void UCKS::form_C_CHP_algorithm()
             }
         }
         std::sort(sorted_holes.begin(),sorted_holes.end());
+
+        // Diagonalize the particle block
+        PvFPv_->diagonalize(Uv_,lambda_v_);
+        std::vector<boost::tuple<double,int,int> > sorted_vir; // (energy,irrep,mo in irrep)
+        for (int h = 0; h < nirrep_; ++h){
+            int nmo = nmopi_[h];
+            for (int p = 0; p < nmo; ++p){
+                sorted_vir.push_back(boost::make_tuple(lambda_v_->get(h,p),h,p));  // N.B. shifted wrt to full indexing
+            }
+        }
+        std::sort(sorted_vir.begin(),sorted_vir.end());
+
+        // Determine the hole/particle pair to follow
+
+
+
         boost::tuple<double,int,int> hole;
         // Extract the hole alpha orbital according to an energy criteria (this needs a generalization)
         if (KS::options_.get_str("CDFT_EXC_HOLE") == "VALENCE"){
@@ -745,16 +768,6 @@ void UCKS::form_C_CHP_algorithm()
         int hole_h = hole.get<1>();
         int hole_mo = hole.get<2>();
 
-        // Diagonalize the particle block
-        PvFPv_->diagonalize(Uv_,lambda_v_);
-        std::vector<boost::tuple<double,int,int> > sorted_vir; // (energy,irrep,mo in irrep)
-        for (int h = 0; h < nirrep_; ++h){
-            int nmo = nmopi_[h];
-            for (int p = 0; p < nmo; ++p){
-                sorted_vir.push_back(boost::make_tuple(lambda_v_->get(h,p),h,p));  // N.B. shifted wrt to full indexing
-            }
-        }
-        std::sort(sorted_vir.begin(),sorted_vir.end());
         // In the case of particle, we assume that we are always interested in the lowest lying orbitals
         boost::tuple<double,int,int> particle = sorted_vir.front();
         double part_energy = particle.get<0>();
@@ -764,7 +777,7 @@ void UCKS::form_C_CHP_algorithm()
         fprintf(outfile,"   constrained hole     %d :(irrep = %d,mo = %d,energy = %.6f)\n",
                         m,hole_h,hole_mo,hole_energy);
         fprintf(outfile,"   constrained particle %d :(irrep = %d,mo = %d,energy = %.6f)\n",
-                m,part_h,part_mo,part_energy);
+                m,part_h,part_mo + dets[m]->nalphapi()[part_h],part_energy);
 
         // Compute the hole orbital
         SharedVector hole_Ca = factory_->create_shared_vector("Hole");
@@ -796,11 +809,11 @@ void UCKS::form_C_CHP_algorithm()
         apartpi[part_h] += 1;
     }
 
-    // Put the hole and particle orbitals in Ch
-//    SharedMatrix Ch = SharedMatrix(new Matrix("Ch",nsopi_,aholepi));
-//    SharedMatrix Cp = SharedMatrix(new Matrix("Cp",nsopi_,apartpi));
+    // Put the hole and particle orbitals in Ch_ and Cp_
     std::vector<int> hole_offset(nirrep_,0);
     std::vector<int> part_offset(nirrep_,0);
+    Cp_->zero();
+    Ch_->zero();
     for (int m = 0; m < nstate; ++m){
         int hole_h = holes_h[m];
         Ch_->set_column(hole_h,hole_offset[hole_h],holes_Ca[m]);
@@ -809,28 +822,6 @@ void UCKS::form_C_CHP_algorithm()
         Cp_->set_column(part_h,part_offset[part_h],parts_Ca[m]);
         part_offset[part_h] += 1;
     }
-
-//    // Orthogonalize the hole orbitals
-//    SharedMatrix Spp = SharedMatrix(new Matrix("Spp",ahppi,ahppi));
-//    SharedMatrix Upp = SharedMatrix(new Matrix("Upp",ahppi,ahppi));
-//    SharedVector spp = SharedVector(new Vector("spp",ahppi));
-//    Spp->transform(S_,Ch);
-//    Spp->diagonalize(Upp,spp);
-//    double S_cutoff = 1.0e-3;
-//    // Form the transformation matrix X (in place of Upp)
-//    for (int h = 0; h < nirrep_; ++h) {
-//        //in each irrep, scale significant cols i by 1.0/sqrt(s_i)
-//        for (int i = 0; i < aholepi[h]; ++i) {
-//            if (std::fabs(spp->get(h,i)) > S_cutoff) {
-//                double scale = 1.0 / std::sqrt(spp->get(h,i));
-//                Upp->scale_column(h,i,scale);
-//            } else {
-//                throw FeatureNotImplemented("CKS", "Cannot yet deal with linear dependent particle orbitals", __FILE__, __LINE__);
-//            }
-//        }
-//    }
-//    Chpo->zero();
-//    Chpo->gemm(false,false,1.0,Ch,Upp,0.0);
 
     // Frozen spectator orbital algorithm
     // Transform the ground state orbitals to the representation which diagonalizes the
@@ -868,8 +859,6 @@ void UCKS::form_C_CHP_algorithm()
     }
     // Get the excited state orbitals: Ca(ex) = Ca(gs) * (Uo | Uv)
     Ca_->gemm(false,false,1.0,dets[0]->Ca(),TempMatrix,0.0);
-    if(KS::options_.get_str("CDFT_EXC_METHOD") == "CHP-F"){
-    }
 
     // Form the projector onto the orbitals orthogonal to the holes and particles in the excited state mo representation
     TempMatrix->zero();
@@ -922,6 +911,25 @@ void UCKS::form_C_CHP_algorithm()
         }
     }
     nbetapi_ = dets[0]->nbetapi();
+    int old_socc[8];
+    int old_docc[8];
+    for(int h = 0; h < nirrep_; ++h){
+        old_socc[h] = soccpi_[h];
+        old_docc[h] = doccpi_[h];
+    }
+
+    for (int h = 0; h < nirrep_; ++h) {
+        soccpi_[h] = std::abs(nalphapi_[h] - nbetapi_[h]);
+        doccpi_[h] = std::min(nalphapi_[h] , nbetapi_[h]);
+    }
+
+    bool occ_changed = false;
+    for(int h = 0; h < nirrep_; ++h){
+        if( old_socc[h] != soccpi_[h] || old_docc[h] != doccpi_[h]){
+            occ_changed = true;
+            break;
+        }
+    }
 
     // At this point the orbitals are sorted according to the energy but we
     // want to make sure that the hole and particle MO appear where they should, that is
@@ -964,26 +972,6 @@ void UCKS::form_C_CHP_algorithm()
     }
     Ca_->copy(TempMatrix);
     epsilon_a_->copy(TempVector.get());
-
-    int old_socc[8];
-    int old_docc[8];
-    for(int h = 0; h < nirrep_; ++h){
-        old_socc[h] = soccpi_[h];
-        old_docc[h] = doccpi_[h];
-    }
-
-    for (int h = 0; h < nirrep_; ++h) {
-        soccpi_[h] = std::abs(nalphapi_[h] - nbetapi_[h]);
-        doccpi_[h] = std::min(nalphapi_[h] , nbetapi_[h]);
-    }
-
-    bool occ_changed = false;
-    for(int h = 0; h < nirrep_; ++h){
-        if( old_socc[h] != soccpi_[h] || old_docc[h] != doccpi_[h]){
-            occ_changed = true;
-            break;
-        }
-    }
 
     // BETA
     if(KS::options_.get_str("CDFT_EXC_METHOD") == "CHP"){
