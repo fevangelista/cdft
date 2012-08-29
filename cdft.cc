@@ -1,23 +1,22 @@
 #include <libplugin/plugin.h>
 #include <psi4-dec.h>
-#include <physconst.h>
 #include <libparallel/parallel.h>
 #include <liboptions/liboptions.h>
 #include <libmints/mints.h>
-#include <libmints/writer.h>
 #include <libpsio/psio.hpp>
 #include <libciomr/libciomr.h>
-#include "ucks.h"
-#include "cucks.h"
+#include <ucks.h>
 
 INIT_PLUGIN
 
-namespace psi{ namespace scf {
+using namespace boost;
 
-extern "C" 
+namespace psi{ namespace cdft {
+
+extern "C"
 int read_options(std::string name, Options& options)
 {
-    if (name == "CKS" or options.read_globals()) {
+    if (name == "CDFT" or options.read_globals()) {
         /*- Charge constraints -*/
         options.add("CHARGE", new ArrayType());
         /*- Spin constraints -*/
@@ -67,58 +66,8 @@ int read_options(std::string name, Options& options)
     return true;
 }
 
-//extern "C"
-//PsiReturnType cks(Options & options)
-//{
-//    tstart();
-
-//    boost::shared_ptr<PSIO> psio = PSIO::shared_object();
-
-//    std::string reference = options.get_str("REFERENCE");
-//    boost::shared_ptr<Wavefunction> scf;
-//    double energy;
-
-//    scf = boost::shared_ptr<Wavefunction>(new CUCKS(options, psio));
-
-//    // print the basis set
-//    if ( options.get_bool("PRINT_BASIS") ) {
-//       boost::shared_ptr<BasisSetParser> parser (new Gaussian94BasisSetParser());
-//       boost::shared_ptr<BasisSet> basisset = boost::shared_ptr<BasisSet>(BasisSet::construct(parser, Process::environment.molecule(), "BASIS"));
-//       basisset->print_detail();
-//    }
-
-//    // Set this early because the callback mechanism uses it.
-//    Process::environment.set_wavefunction(scf);
-
-//    energy = scf->compute_energy();
-
-//    Communicator::world->sync();
-
-//    // Print a molden file
-//    if ( options["MOLDEN_FILE"].has_changed() ) {
-//       boost::shared_ptr<MoldenWriter> molden(new MoldenWriter(scf));
-//       molden->write(options.get_str("MOLDEN_FILE"));
-//    }
-//    // Print molecular orbitals
-//    if ( options.get_bool("PRINT_MOS") ) {
-//       boost::shared_ptr<MOWriter> mo(new MOWriter(scf,options));
-//       mo->write();
-//    }
-
-//    // Set some environment variables
-//    Process::environment.globals["SCF TOTAL ENERGY"] = energy;
-//    Process::environment.globals["CURRENT ENERGY"] = energy;
-//    Process::environment.globals["CURRENT REFERENCE ENERGY"] = energy;
-
-//    // Shut down psi.
-
-//    tstop();
-
-//    return Success;
-//}
-
 extern "C"
-PsiReturnType cks(Options& options)
+PsiReturnType cdft(Options& options)
 {
     tstart();
 
@@ -131,7 +80,7 @@ PsiReturnType cks(Options& options)
         throw InputException("Constrained RKS is not implemented ", "REFERENCE to UKS", __FILE__, __LINE__);
     }else if (reference == "UKS") {
         // Run a ground state computation first
-        ref_scf = boost::shared_ptr<Wavefunction>(new UCKS(options, psio));
+        ref_scf = boost::shared_ptr<Wavefunction>(new scf::UCKS(options, psio));
         Process::environment.set_wavefunction(ref_scf);
         double gs_energy = ref_scf->compute_energy();
         // Print a molden file
@@ -151,8 +100,8 @@ PsiReturnType cks(Options& options)
         int nholes = 0;
         int nparticles = 0;
         for(int state = 0; state < nexcited; ++state){
-            boost::shared_ptr<UCKS> ref_ucks = boost::shared_ptr<UCKS>( static_cast<UCKS*>(ref_scf.get()) );
-            boost::shared_ptr<Wavefunction> new_scf = boost::shared_ptr<Wavefunction>(new UCKS(options,psio,ref_ucks));
+            boost::shared_ptr<scf::UCKS> ref_ucks = boost::shared_ptr<scf::UCKS>( static_cast<scf::UCKS*>(ref_scf.get()) );
+            boost::shared_ptr<Wavefunction> new_scf = boost::shared_ptr<Wavefunction>(new scf::UCKS(options,psio,ref_ucks));
             Process::environment.wavefunction().reset();
             Process::environment.set_wavefunction(new_scf);
             double new_energy = new_scf->compute_energy();
@@ -189,6 +138,5 @@ PsiReturnType cks(Options& options)
     tstop();
     return Success;
 }
-
 
 }} // End namespaces

@@ -1038,6 +1038,7 @@ void UCKS::form_C_CHP_algorithm()
         Ca_->print(outfile);
         Cb_->print(outfile);
     }
+    print_occupation();
 }
 
 /// Gradient of W

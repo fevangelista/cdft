@@ -1,4 +1,4 @@
-#include <cks.h>
+#include <rcks.h>
 #include <libmints/view.h>
 #include <libmints/mints.h>
 #include <libfock/apps.h>
