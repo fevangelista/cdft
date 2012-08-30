@@ -90,48 +90,67 @@ PsiReturnType cdft(Options& options)
         }
         energies.push_back(gs_energy);
 
-        // Count the number of excited state computations
-        int nexcited = 0;
         if(options["ROOTS_PER_IRREP"].has_changed() and options["NROOTS"].has_changed()){
             throw InputException("NROOTS and ROOTS_PER_IRREP are simultaneously defined", "Please specify either NROOTS or ROOTS_PER_IRREP", __FILE__, __LINE__);
-        }else{
-            nexcited = options["NROOTS"].to_integer();
         }
-        int nholes = 0;
-        int nparticles = 0;
-        for(int state = 0; state < nexcited; ++state){
-            boost::shared_ptr<scf::UCKS> ref_ucks = boost::shared_ptr<scf::UCKS>( static_cast<scf::UCKS*>(ref_scf.get()) );
-            boost::shared_ptr<Wavefunction> new_scf = boost::shared_ptr<Wavefunction>(new scf::UCKS(options,psio,ref_ucks));
-            Process::environment.wavefunction().reset();
-            Process::environment.set_wavefunction(new_scf);
-            double new_energy = new_scf->compute_energy();
-            // Print a molden file
-            if ( options["MOLDEN_FILE"].has_changed() ) {
-               boost::shared_ptr<MoldenWriter> molden(new MoldenWriter(new_scf));
-               molden->write(to_string(state + 1) + "." + options.get_str("MOLDEN_FILE"));
+        // Compute a number of excited states without specifying the symmetry
+        if(options["NROOTS"].has_changed()){
+            int nstates = options["NROOTS"].to_integer();
+            for(int state = 1; state <= nstates; ++state){
+                boost::shared_ptr<scf::UCKS> ref_ucks = boost::shared_ptr<scf::UCKS>( static_cast<scf::UCKS*>(ref_scf.get()) );
+                boost::shared_ptr<Wavefunction> new_scf = boost::shared_ptr<Wavefunction>(new scf::UCKS(options,psio,ref_ucks,state));
+                Process::environment.wavefunction().reset();
+                Process::environment.set_wavefunction(new_scf);
+                double new_energy = new_scf->compute_energy();
+                // Print a molden file
+                if ( options["MOLDEN_FILE"].has_changed() ) {
+                    boost::shared_ptr<MoldenWriter> molden(new MoldenWriter(new_scf));
+                    molden->write(to_string(state + 1) + "." + options.get_str("MOLDEN_FILE"));
+                }
+                energies.push_back(new_energy);
+                ref_scf = new_scf;
             }
-            energies.push_back(new_energy);
-            ref_scf = new_scf;
+        }
+        // Compute a number of excited states of a given symmetry
+        else if(options["ROOTS_PER_IRREP"].has_changed()){
+            int maxnirrep = Process::environment.wavefunction()->nirrep();
+            int nirrep = options["ROOTS_PER_IRREP"].size();
+            if (nirrep != maxnirrep){
+                throw InputException("The number of irreps specified in the option ROOTS_PER_IRREP does not match the number of irreps",
+                                     "Please specify a correct number of irreps in ROOTS_PER_IRREP", __FILE__, __LINE__);
+            }
+            for (int h = 0; h < nirrep; ++h){
+                int nstates = options["ROOTS_PER_IRREP"][h].to_integer();
+                fprintf(outfile,"  Computing %d state%s of symmetry %d",nstates,nstates >1 ? "s" : "",h);
+                for (int state = 1; state <= nstates; ++state){
+                    boost::shared_ptr<scf::UCKS> ref_ucks = boost::shared_ptr<scf::UCKS>( static_cast<scf::UCKS*>(ref_scf.get()) );
+                    boost::shared_ptr<Wavefunction> new_scf = boost::shared_ptr<Wavefunction>(new scf::UCKS(options,psio,ref_ucks,state,h));
+                    Process::environment.wavefunction().reset();
+                    Process::environment.set_wavefunction(new_scf);
+                    double new_energy = new_scf->compute_energy();
+                    // Print a molden file
+                    if ( options["MOLDEN_FILE"].has_changed() ) {
+                        boost::shared_ptr<MoldenWriter> molden(new MoldenWriter(new_scf));
+                        molden->write(to_string(state + 1) + "_" + to_string(state + 1) + "." + options.get_str("MOLDEN_FILE"));
+                    }
+                    energies.push_back(new_energy);
+                    ref_scf = new_scf;
+                }
+            }
         }
     }else {
         throw InputException("Unknown reference " + reference, "REFERENCE", __FILE__, __LINE__);
     }
-//    // Print the excitation energies
-//    for(int state = 1; state < static_cast<int>(energies.size()); ++state){
-//        double exc_energy = energies[state] - energies[0];
-//        fprintf(outfile,"  Excited state %d : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
-//                state,exc_energy,exc_energy * _hartree2ev, exc_energy * _hartree2wavenumbers);
-//    }
 
     // Set this early because the callback mechanism uses it.
     Process::environment.wavefunction().reset();
 
     Communicator::world->sync();
 
-//    // Set some environment variables
-//    Process::environment.globals["SCF TOTAL ENERGY"] = energies.back();
-//    Process::environment.globals["CURRENT ENERGY"] = energies.back();
-//    Process::environment.globals["CURRENT REFERENCE ENERGY"] = energies[0];
+    // Set some environment variables
+    Process::environment.globals["SCF TOTAL ENERGY"] = energies.back();
+    Process::environment.globals["CURRENT ENERGY"] = energies.back();
+    Process::environment.globals["CURRENT REFERENCE ENERGY"] = energies[0];
 
     // Shut down psi.
 

@@ -43,29 +43,35 @@ public:
 /// A class for unrestricted constrained Kohn-Sham theory
 class UCKS : public UKS {
 public:
-    UCKS(Options &options, boost::shared_ptr<PSIO> psio);
-    UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<UCKS> ref_scf);
+    explicit UCKS(Options &options, boost::shared_ptr<PSIO> psio);
+    explicit UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<UCKS> ref_scf, int state);
+    explicit UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<UCKS> ref_scf, int state, int symmetry);
     virtual ~UCKS();
 protected:
     /// The fragment constraint matrices in the SO basis
     std::vector<SharedMatrix> W_frag;
 
     // Excitation energy
-    /// Compute an excited state as an optimal singly excited state
+    /// Compute an excited state?
     bool do_excitation;
+    /// Compute a state of a given symmetry?
+    bool do_symmetry;
     /// Ground state energy
     double ground_state_energy;
-    /// Number of occupied orbitals to project out
-    int nexclude_occ;
-    /// Number of virtual orbitals to project out
-    int nexclude_vir;
+    /// Ground state symmetry
+    int ground_state_symmetry_;
+    /// Symmetry of the excited state, if specified
+    int excited_state_symmetry_;
+    /// Excited state number, starting from one
+    int state_;
 
     // Information about the excited states
     /// Determinant information for each electronic state
     std::vector<SharedDeterminant> dets;
-
     /// The ground state scf object
     boost::shared_ptr<UCKS> ref_scf_;
+    /// The symmetry of the
+
     /// The Fock matrix projected onto the occupied space
     SharedMatrix PoFPo_;
     /// The Fock matrix projected onto the virtual space
