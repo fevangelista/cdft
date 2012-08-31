@@ -68,9 +68,6 @@ protected:
     // Information about the excited states
     /// Determinant information for each electronic state
     std::vector<SharedDeterminant> dets;
-    /// The ground state scf object
-    boost::shared_ptr<UCKS> ref_scf_;
-    /// The symmetry of the
 
     /// The Fock matrix projected onto the occupied space
     SharedMatrix PoFPo_;
@@ -154,6 +151,8 @@ protected:
     // UKS specific functions
     /// Class initializer
     void init();
+    /// Initialize the exctiation functions
+    void init_excitation(boost::shared_ptr<UCKS> ref_scf);
     /// Build the fragment constrain matrices in the SO basis
     void build_W_frag();
     /// Build the excitation constraint matrices in the SO basis

@@ -9,14 +9,16 @@ namespace scf{
 class Determinant
 {
 public:
-    Determinant(double energy, SharedMatrix Ca, SharedMatrix Cb, Dimension nalphapi, Dimension nbetapi);
+    Determinant(double energy, SharedMatrix Ca, SharedMatrix Cb, const Dimension &nalphapi, const Dimension &nbetapi);
     Determinant(const Determinant& det);
     ~Determinant();
     double energy() {return energy_;}
     SharedMatrix Ca() {return Ca_;}
     SharedMatrix Cb() {return Cb_;}
-    const Dimension nalphapi() {return nalphapi_;}
-    const Dimension nbetapi() {return nbetapi_;}
+    const Dimension& nalphapi() {return nalphapi_;}
+    const Dimension& nbetapi() {return nbetapi_;}
+    int symmetry();
+    void print();
 private:
     double energy_;
     Dimension nalphapi_;

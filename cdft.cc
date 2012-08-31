@@ -145,12 +145,12 @@ PsiReturnType cdft(Options& options)
     // Set this early because the callback mechanism uses it.
     Process::environment.wavefunction().reset();
 
-    Communicator::world->sync();
+//    Communicator::world->sync();
 
-    // Set some environment variables
-    Process::environment.globals["SCF TOTAL ENERGY"] = energies.back();
-    Process::environment.globals["CURRENT ENERGY"] = energies.back();
-    Process::environment.globals["CURRENT REFERENCE ENERGY"] = energies[0];
+//    // Set some environment variables
+//    Process::environment.globals["SCF TOTAL ENERGY"] = energies.back();
+//    Process::environment.globals["CURRENT ENERGY"] = energies.back();
+//    Process::environment.globals["CURRENT REFERENCE ENERGY"] = energies[0];
 
     // Shut down psi.
 

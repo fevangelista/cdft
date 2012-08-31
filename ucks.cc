@@ -42,11 +42,11 @@ UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<UCK
   nW_opt(0),
   ground_state_energy(0.0),
   ground_state_symmetry_(0),
-  ref_scf_(ref_scf),
   excited_state_symmetry_(0),
   state_(state)
 {
     init();
+    init_excitation(ref_scf);
 }
 
 UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<UCKS> ref_scf, int state,int symmetry)
@@ -58,21 +58,13 @@ UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<UCK
   nW_opt(0),
   ground_state_energy(0.0),
   ground_state_symmetry_(0),
-  ref_scf_(ref_scf),
   excited_state_symmetry_(symmetry),
   state_(state)
 {
     init();
-    // Compute the symmetry of the ground state
-    Dimension gs_nalphapi = dets[0]->nalphapi();
-    Dimension gs_nbetapi = dets[0]->nbetapi();
-    ground_state_symmetry_ = 0;
-    for (int h = 0; h < nirrep_; ++h){
-        // Check if there is an odd number of electrons in h
-        if( std::abs(gs_nalphapi[h] - gs_nbetapi[h]) % 2 == 1){
-            ground_state_symmetry_ ^= h;
-        }
-    }
+    init_excitation(ref_scf);
+    ground_state_energy = dets[0]->energy();
+    ground_state_symmetry_ = dets[0]->symmetry();
 }
 
 void UCKS::init()
@@ -135,43 +127,6 @@ void UCKS::init()
     hessW = SharedMatrix(new Matrix("hessW",nconstraints,nconstraints));
     hessW_BFGS = SharedMatrix(new Matrix("hessW_BFGS",nconstraints,nconstraints));
 
-    if(do_excitation){
-        // Never recalculate the socc and docc arrays
-        input_socc_ = true;
-        input_docc_ = true;
-
-        fprintf(outfile,"  Saving the reference orbitals for an excited state computation\n");
-        PoFPo_ = factory_->create_shared_matrix("PoFsPo");
-        PvFPv_ = factory_->create_shared_matrix("PvFPv");
-        QFQ_ = factory_->create_shared_matrix("QFQ");
-        Ch_ = factory_->create_shared_matrix("Hole MOs");
-        Cp_ = factory_->create_shared_matrix("Particle MOs");
-        moFeffa_ = factory_->create_shared_matrix("MO alpha Feff");
-        moFeffb_ = factory_->create_shared_matrix("MO beta Feff");
-        Uo_ = factory_->create_shared_matrix("Uo");
-        Uv_ = factory_->create_shared_matrix("Uv");
-        lambda_o_ = factory_->create_shared_vector("lambda_o");
-        lambda_v_ = factory_->create_shared_vector("lambda_v");
-
-        // Save the reference state MOs and occupation numbers
-//        if(do_symmetry and (state_ == 1)){  // If we are starting with a new irrep save only the ground state wfn
-//            dets.push_back(ref_scf_->dets[0]);
-//        }else{
-//        }
-        ref_scf_->dets[0]->nalphapi().print();
-        dets = ref_scf_->dets;
-        ground_state_energy = dets[0]->energy();
-        fprintf(outfile,"\n  ground state enrgy = %f",ground_state_energy);
-        fflush(outfile);
-
-
-        dets[0]->nbetapi().print();
-
-        // Set the Fock matrix to the converged Fock matrix for the previous state
-        Fa_->copy(ref_scf_->Fa_);
-        Fb_->copy(ref_scf_->Fb_);
-    }
-
     for (int f = 0; f < std::min(int(KS::options_["VC"].size()),nconstraints); ++f){
         if(KS::options_["VC"][f].to_string() != "-"){
             Vc->set(f,KS::options_["VC"][f].to_double());
@@ -185,6 +140,37 @@ void UCKS::init()
         fprintf(outfile,"  The constraint(s) will be optimized.\n");
     }
     save_H_ = true;
+}
+
+void UCKS::init_excitation(boost::shared_ptr<UCKS> ref_scf)
+{
+    // Never recalculate the socc and docc arrays
+    input_socc_ = true;
+    input_docc_ = true;
+
+    PoFPo_ = factory_->create_shared_matrix("PoFsPo");
+    PvFPv_ = factory_->create_shared_matrix("PvFPv");
+    QFQ_ = factory_->create_shared_matrix("QFQ");
+    Ch_ = factory_->create_shared_matrix("Hole MOs");
+    Cp_ = factory_->create_shared_matrix("Particle MOs");
+    moFeffa_ = factory_->create_shared_matrix("MO alpha Feff");
+    moFeffb_ = factory_->create_shared_matrix("MO beta Feff");
+    Uo_ = factory_->create_shared_matrix("Uo");
+    Uv_ = factory_->create_shared_matrix("Uv");
+    lambda_o_ = factory_->create_shared_vector("lambda_o");
+    lambda_v_ = factory_->create_shared_vector("lambda_v");
+
+    // Save the reference state MOs and occupation numbers
+    fprintf(outfile,"  Saving the reference orbitals for an excited state computation\n");
+    if(do_symmetry and (state_ == 1)){  // If we are starting with a new irrep save only the ground state wfn
+        dets.push_back(ref_scf->dets[0]);
+    }else{
+        dets = ref_scf->dets;
+    }
+
+    // Set the Fock matrix to the converged Fock matrix for the previous state
+    Fa_->copy(ref_scf->Fa_);
+    Fb_->copy(ref_scf->Fb_);
 }
 
 UCKS::~UCKS()
@@ -827,36 +813,25 @@ void UCKS::form_C_CHP_algorithm()
             }
         }
         std::sort(sorted_hp_pairs.begin(),sorted_hp_pairs.end());
-        fprintf(outfile,"  Lowest energy excitations:\n");
-        for (int n = 0; n < 10; ++n){
-            double energy_hp = sorted_hp_pairs[n].get<6>() - sorted_hp_pairs[n].get<3>();
-            fprintf(outfile,"  (h=%1d,mo=%3d) -> (h=%1d,mo=%3d), energy = %9.3f eV\n",
-                    sorted_hp_pairs[n].get<1>(),sorted_hp_pairs[n].get<2>(),
-                    sorted_hp_pairs[n].get<4>(),sorted_hp_pairs[n].get<5>(),
-                    energy_hp * _hartree2ev);
+        if(iteration_ == 0){
+            CharacterTable ct = KS::molecule_->point_group()->char_table();
+            fprintf(outfile, "\n  Lowest energy excitations:\n");
+            fprintf(outfile, "  --------------------------------------\n");
+            fprintf(outfile, "    N   Occupied     Virtual     E(eV)  \n");
+            fprintf(outfile, "  --------------------------------------\n");
+            int maxstates = std::min(10,static_cast<int>(sorted_hp_pairs.size()));
+            for (int n = 0; n < maxstates; ++n){
+                double energy_hp = sorted_hp_pairs[n].get<6>() - sorted_hp_pairs[n].get<3>();
+                fprintf(outfile,"   %2d:  %4d%-3s  -> %4d%-3s   %9.3f\n",n + 1,
+                        sorted_hp_pairs[n].get<2>() + 1,
+                        ct.gamma(sorted_hp_pairs[n].get<1>()).symbol(),
+                        dets[m]->nalphapi()[sorted_hp_pairs[n].get<4>()] + sorted_hp_pairs[n].get<5>() + 1,
+                        ct.gamma(sorted_hp_pairs[n].get<4>()).symbol(),
+                        energy_hp * _hartree2ev);
+            }
+            fprintf(outfile, "  --------------------------------------\n");
         }
-//        if(do_symmetry){
-//            fprintf(outfile,"  Ground state symmetry: %d",ground_state_symmetry_);
-//            fprintf(outfile,"  Target excited state symmetry: %d",excited_state_symmetry_);
-//        }else{
-//            // Extract the hole alpha orbital according to an energy criteria (this needs a generalization)
-//            if (KS::options_.get_str("CDFT_EXC_HOLE") == "VALENCE"){
-//                // For valence excitations select the highest lying orbital (HOMO-like)
-//                hole = sorted_holes.back();
-//            }else if(KS::options_.get_str("CDFT_EXC_HOLE") == "CORE"){
-//                // For core excitations select the lowest lying orbital (1s-like)
-//                hole = sorted_holes.front();
-//            }
-//            double hole_energy = hole.get<0>();
-//            int hole_h = hole.get<1>();
-//            int hole_mo = hole.get<2>();
 
-//            // In the case of particle, we assume that we are always interested in the lowest lying orbitals
-//            boost::tuple<double,int,int> particle = sorted_vir.front();
-//            double part_energy = particle.get<0>();
-//            int part_h = particle.get<1>();
-//            int part_mo = particle.get<2>();
-//        }
         int hole_h = sorted_hp_pairs[0].get<1>();
         int hole_mo = sorted_hp_pairs[0].get<2>();
         double hole_energy = sorted_hp_pairs[0].get<3>();
@@ -865,17 +840,10 @@ void UCKS::form_C_CHP_algorithm()
         int part_mo = sorted_hp_pairs[0].get<5>();
         double part_energy = sorted_hp_pairs[0].get<6>();
 
-//        // In the case of particle, we assume that we are always interested in the lowest lying orbitals
-//        boost::tuple<double,int,int> particle = sorted_vir.front();
-
-
         fprintf(outfile,"   constrained hole     %d :(irrep = %d,mo = %d,energy = %.6f)\n",
                         m,hole_h,hole_mo,hole_energy);
         fprintf(outfile,"   constrained particle %d :(irrep = %d,mo = %d,energy = %.6f)\n",
                 m,part_h,part_mo + dets[m]->nalphapi()[part_h],part_energy);
-
-
-
 
         // Compute the hole orbital
         SharedVector hole_Ca = factory_->create_shared_vector("Hole");
@@ -1124,7 +1092,6 @@ void UCKS::form_C_CHP_algorithm()
         Ca_->print(outfile);
         Cb_->print(outfile);
     }
-    print_occupation();
 }
 
 /// Gradient of W
@@ -1445,7 +1412,6 @@ bool UCKS::test_convergency()
 void UCKS::save_information()
 {
     dets.push_back(SharedDeterminant(new Determinant(E_,Ca_,Cb_,nalphapi_,nbetapi_)));
-    dets[0]->nalphapi().print();
     if(do_excitation){
         double mixlet_exc_energy = E_ - ground_state_energy;
         fprintf(outfile,"  Excited mixed state   : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
