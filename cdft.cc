@@ -97,8 +97,7 @@ PsiReturnType cdft(Options& options)
         if(options["NROOTS"].has_changed()){
             int nstates = options["NROOTS"].to_integer();
             for(int state = 1; state <= nstates; ++state){
-                boost::shared_ptr<scf::UCKS> ref_ucks = boost::shared_ptr<scf::UCKS>( static_cast<scf::UCKS*>(ref_scf.get()) );
-                boost::shared_ptr<Wavefunction> new_scf = boost::shared_ptr<Wavefunction>(new scf::UCKS(options,psio,ref_ucks,state));
+                boost::shared_ptr<Wavefunction> new_scf = boost::shared_ptr<Wavefunction>(new scf::UCKS(options,psio,ref_scf,state));
                 Process::environment.wavefunction().reset();
                 Process::environment.set_wavefunction(new_scf);
                 double new_energy = new_scf->compute_energy();
@@ -123,8 +122,7 @@ PsiReturnType cdft(Options& options)
                 int nstates = options["ROOTS_PER_IRREP"][h].to_integer();
                 fprintf(outfile,"  Computing %d state%s of symmetry %d",nstates,nstates >1 ? "s" : "",h);
                 for (int state = 1; state <= nstates; ++state){
-                    boost::shared_ptr<scf::UCKS> ref_ucks = boost::shared_ptr<scf::UCKS>( static_cast<scf::UCKS*>(ref_scf.get()) );
-                    boost::shared_ptr<Wavefunction> new_scf = boost::shared_ptr<Wavefunction>(new scf::UCKS(options,psio,ref_ucks,state,h));
+                    boost::shared_ptr<Wavefunction> new_scf = boost::shared_ptr<Wavefunction>(new scf::UCKS(options,psio,ref_scf,state,h));
                     Process::environment.wavefunction().reset();
                     Process::environment.set_wavefunction(new_scf);
                     double new_energy = new_scf->compute_energy();

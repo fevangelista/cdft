@@ -44,8 +44,8 @@ public:
 class UCKS : public UKS {
 public:
     explicit UCKS(Options &options, boost::shared_ptr<PSIO> psio);
-    explicit UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<UCKS> ref_scf, int state);
-    explicit UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<UCKS> ref_scf, int state, int symmetry);
+    explicit UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<Wavefunction> ref_scf, int state);
+    explicit UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<Wavefunction> ref_scf, int state, int symmetry);
     virtual ~UCKS();
 protected:
     /// The fragment constraint matrices in the SO basis
@@ -152,7 +152,7 @@ protected:
     /// Class initializer
     void init();
     /// Initialize the exctiation functions
-    void init_excitation(boost::shared_ptr<UCKS> ref_scf);
+    void init_excitation( boost::shared_ptr<Wavefunction> ref_scf);
     /// Build the fragment constrain matrices in the SO basis
     void build_W_frag();
     /// Build the excitation constraint matrices in the SO basis

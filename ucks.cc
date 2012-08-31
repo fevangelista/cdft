@@ -33,7 +33,7 @@ UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio)
     init();
 }
 
-UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<UCKS> ref_scf, int state)
+UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<Wavefunction> ref_scf, int state)
 : UKS(options, psio),
   do_excitation(true),
   do_symmetry(false),
@@ -49,7 +49,7 @@ UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<UCK
     init_excitation(ref_scf);
 }
 
-UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<UCKS> ref_scf, int state,int symmetry)
+UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<Wavefunction> ref_scf, int state,int symmetry)
 : UKS(options, psio),
   do_excitation(true),
   do_symmetry(true),
@@ -142,7 +142,7 @@ void UCKS::init()
     save_H_ = true;
 }
 
-void UCKS::init_excitation(boost::shared_ptr<UCKS> ref_scf)
+void UCKS::init_excitation(boost::shared_ptr<Wavefunction> ref_scf)
 {
     // Never recalculate the socc and docc arrays
     input_socc_ = true;
@@ -162,15 +162,16 @@ void UCKS::init_excitation(boost::shared_ptr<UCKS> ref_scf)
 
     // Save the reference state MOs and occupation numbers
     fprintf(outfile,"  Saving the reference orbitals for an excited state computation\n");
+    UCKS* ucks_ptr = dynamic_cast<UCKS*>(ref_scf.get());
     if(do_symmetry and (state_ == 1)){  // If we are starting with a new irrep save only the ground state wfn
-        dets.push_back(ref_scf->dets[0]);
+        dets.push_back(ucks_ptr->dets[0]);
     }else{
-        dets = ref_scf->dets;
+        dets = ucks_ptr->dets;
     }
 
     // Set the Fock matrix to the converged Fock matrix for the previous state
-    Fa_->copy(ref_scf->Fa_);
-    Fb_->copy(ref_scf->Fb_);
+    Fa_->copy(ref_scf->Fa());
+    Fb_->copy(ref_scf->Fb());
 }
 
 UCKS::~UCKS()
@@ -791,6 +792,7 @@ void UCKS::form_C_CHP_algorithm()
             // Get the energy of the lowest lying orbital (1s-like)
             hole_energy_shift = sorted_holes.front().get<0>();
         }
+        CharacterTable ct = KS::molecule_->point_group()->char_table();
 
         // Determine the hole/particle pair to follow
         // Compute the symmetry adapted hole/particle pairs
@@ -804,17 +806,23 @@ void UCKS::form_C_CHP_algorithm()
                         double e_p = lambda_v_->get(h_p,p);
                         if ((e_h < 1.0e6) and (e_p < 1.0e6)){  // Test to eliminate the fake eigenvalues added to the PFP matrices
                             double e_hp = do_core_excitation ? (e_p + e_h - hole_energy_shift) : (e_p - e_h);
-                            if(not do_symmetry or (h_h ^ h_p ^ ground_state_symmetry_ == excited_state_symmetry_)){ // Test for symmetry
+                            int symm = h_h ^ h_p ^ ground_state_symmetry_;
+                            if(not do_symmetry or (symm == excited_state_symmetry_)){ // Test for symmetry
                                 sorted_hp_pairs.push_back(boost::make_tuple(e_hp,h_h,h,e_h,h_p,p,e_p));  // N.B. shifted wrt to full indexing
+//                                fprintf(outfile, "  %s  gamma(h) = %s, gamma(p) = %s, gamma(hp) = %s, gamma(Phi-hp) = %s \n",do_symmetry ? "true" : "false",
+//                                        ct.gamma(h_h).symbol(),ct.gamma(h_p).symbol(),ct.gamma(h_h ^ h_p).symbol(),
+//                                        ct.gamma(symm).symbol());
                             }
                         }
                     }
                 }
             }
         }
+
+        fprintf(outfile, "\n  Ground state symmetry: %s\n",ct.gamma(ground_state_symmetry_).symbol());
+        fprintf(outfile, "  Excited state symmetry: %s\n",ct.gamma(excited_state_symmetry_).symbol());
         std::sort(sorted_hp_pairs.begin(),sorted_hp_pairs.end());
         if(iteration_ == 0){
-            CharacterTable ct = KS::molecule_->point_group()->char_table();
             fprintf(outfile, "\n  Lowest energy excitations:\n");
             fprintf(outfile, "  --------------------------------------\n");
             fprintf(outfile, "    N   Occupied     Virtual     E(eV)  \n");
