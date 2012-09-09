@@ -155,7 +155,161 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
     jk->initialize();
     if(num_alpha_nonc == 0 and num_beta_nonc == 0){
         overlap =Stilde;
-//        throw FeatureNotImplemented("CKS", "H in the case of zero noncoincidences", __FILE__, __LINE__);
+        // Build the W^BA alpha density matrix
+        SharedMatrix W_BA_a = factory_->create_shared_matrix("W_BA_a");
+        SharedMatrix W_BA_b = factory_->create_shared_matrix("W_BA_b");
+        for (int h = 0; h < nirrep_; ++h){
+            int nocc = A->nalphapi()[h];  // NB in this case there cannot be symmetry noncoincidences
+            int nso = nsopi_[h];
+            double** W = W_BA_a->pointer(h);
+            double** CA = ACa->pointer(h);
+            double** CB = BCa->pointer(h);
+            double* s = s_a->pointer(h);
+            for (int m = 0; m < nso; ++m){
+                for (int n = 0; n < nso; ++n){
+                    double Wmn = 0.0;
+                    for (int i = 0; i < nocc; ++i){
+                        Wmn += CB[m][i] * CA[n][i] / s[i];
+                    }
+                    W[m][n] = Wmn;
+                }
+            }
+        }
+        // Build the W^BA beta density matrix
+        for (int h = 0; h < nirrep_; ++h){
+            int nocc = A->nbetapi()[h];  // NB in this case there cannot be symmetry noncoincidences
+            int nso = nsopi_[h];
+            double** W = W_BA_b->pointer(h);
+            double** CA = ACb->pointer(h);
+            double** CB = BCb->pointer(h);
+            double* s = s_b->pointer(h);
+            for (int m = 0; m < nso; ++m){
+                for (int n = 0; n < nso; ++n){
+                    double Wmn = 0.0;
+                    for (int i = 0; i < nocc; ++i){
+                        Wmn += CB[m][i] * CA[n][i] / s[i];
+                    }
+                    W[m][n] = Wmn;
+                }
+            }
+        }
+        double WH_a = W_BA_a->vector_dot(H_copy);
+        double WH_b  = W_BA_b->vector_dot(H_copy);
+        double one_body = WH_a + WH_b;
+
+        SharedMatrix scaled_BCa = BCa->clone();
+        SharedMatrix scaled_BCb = BCb->clone();
+        SharedMatrix scaled_ACa = ACa->clone();
+        SharedMatrix scaled_ACb = ACb->clone();
+        for (int h = 0; h < nirrep_; ++h){
+            int nocc = A->nalphapi()[h];  // NB in this case there cannot be symmetry noncoincidences
+            int nso = nsopi_[h];
+            double** CA = scaled_ACa->pointer(h);
+            double** CB = scaled_BCa->pointer(h);
+            double* s = s_a->pointer(h);
+            for (int m = 0; m < nso; ++m){
+                for (int i = 0; i < nocc; ++i){
+                    CB[m][i] /= s[i];
+//                    CA[m][i] /= std::sqrt(s[i]);
+//                    CB[m][i] /= std::sqrt(s[i]);
+                }
+            }
+        }
+        for (int h = 0; h < nirrep_; ++h){
+            int nocc = A->nbetapi()[h];  // NB in this case there cannot be symmetry noncoincidences
+            int nso = nsopi_[h];
+            double** CA = scaled_ACb->pointer(h);
+            double** CB = scaled_BCb->pointer(h);
+            double* s = s_b->pointer(h);
+            for (int m = 0; m < nso; ++m){
+                for (int i = 0; i < nocc; ++i){
+                    CB[m][i] /= s[i];
+//                    CA[m][i] /= std::sqrt(s[i]);
+//                    CB[m][i] /= std::sqrt(s[i]);
+                }
+            }
+        }
+
+        std::vector<SharedMatrix>& C_left = jk->C_left();
+        C_left.clear();
+        C_left.push_back(scaled_BCa);
+        C_left.push_back(scaled_BCb);
+        std::vector<SharedMatrix>& C_right = jk->C_right();
+        C_right.clear();
+        C_right.push_back(scaled_ACa);
+        C_right.push_back(scaled_ACb);
+        jk->compute();
+        const std::vector<SharedMatrix >& Dn = jk->D();
+
+        SharedMatrix Ja = jk->J()[0];
+        SharedMatrix Jb = jk->J()[1];
+        SharedMatrix Ka = jk->K()[0];
+        SharedMatrix Kb = jk->K()[1];
+        double WJW_aa = Ja->vector_dot(W_BA_a);
+        double WJW_bb = Jb->vector_dot(W_BA_b);
+        double WJW_ba = Jb->vector_dot(W_BA_a);
+        W_BA_a->transpose_this();
+        W_BA_b->transpose_this();
+        double WKW_aa = Ka->vector_dot(W_BA_a);
+        double WKW_bb = Kb->vector_dot(W_BA_b);
+
+        double two_body = 0.5 * (WJW_aa + WJW_bb + 2.0 * WJW_ba - WKW_aa - WKW_bb);
+
+        double interaction = nuclearrep_ + one_body + two_body;
+
+        hamiltonian = interaction * Stilde;
+        fprintf(outfile,"  Matrix element from libfock = %14.6f (Stilde) * %14.6f (int) = %20.12f\n", Stilde, interaction, hamiltonian);
+        fprintf(outfile,"  W_a . h = %20.12f\n", WH_a);
+        fprintf(outfile,"  W_b . h = %20.12f\n", WH_b);
+        fprintf(outfile,"  W_a . J(W_a) = %20.12f\n", WJW_aa);
+        fprintf(outfile,"  W_b . J(W_b) = %20.12f\n", WJW_bb);
+        fprintf(outfile,"  W_b . J(W_a) = %20.12f\n", WJW_ba);
+        fprintf(outfile,"  W_a . K(W_a) = %20.12f\n", WKW_aa);
+        fprintf(outfile,"  W_b . K(W_b) = %20.12f\n", WKW_bb);
+
+        fprintf(outfile,"  W . h = %20.12f\n", one_body);
+        fprintf(outfile,"  1/2 W . J - 1/2 Wa . Ka - 1/2 Wb . Kb = %20.12f\n", two_body);
+
+        fprintf(outfile,"  E1 = %20.12f\n", _hartree2ev * ((E_ + hamiltonian)/(1+overlap) - ground_state_energy) );
+        fprintf(outfile,"  E2 = %20.12f\n", _hartree2ev * ((E_ - hamiltonian)/(1-overlap) - ground_state_energy) );
+        fprintf(outfile,"  E1-E2 = %20.12f\n", _hartree2ev * ((E_ + hamiltonian)/(1+overlap) - (E_ - hamiltonian)/(1-overlap)));
+
+
+        SharedMatrix h_BA_a = SharedMatrix(new Matrix("h_BA_a",A->nalphapi(),B->nalphapi()));
+        h_BA_a->transform(BCa,H_copy,ACa);
+        double alpha_one_body2 = 0.0;
+        for (int h = 0; h < nirrep_; ++h){
+            int nocc = A->nalphapi()[h];  // NB in this case there cannot be symmetry noncoincidences
+            double** h_BA = h_BA_a->pointer(h);
+            double* s = s_a->pointer(h);
+            for (int i = 0; i < nocc; ++i){
+                alpha_one_body2 += h_BA[i][i] / s[i];
+            }
+        }
+
+        SharedMatrix h_BA_b = SharedMatrix(new Matrix("h_BA_b",A->nbetapi(),B->nbetapi()));
+        h_BA_b->transform(BCb,H_copy,ACb);
+        double beta_one_body2 = 0.0;
+        for (int h = 0; h < nirrep_; ++h){
+            int nocc = A->nbetapi()[h];  // NB in this case there cannot be symmetry noncoincidences
+            double** h_BA = h_BA_b->pointer(h);
+            double* s = s_b->pointer(h);
+            for (int i = 0; i < nocc; ++i){
+                beta_one_body2 += h_BA[i][i] / s[i];
+            }
+        }
+        double one_body2 = alpha_one_body2 + beta_one_body2;
+        double interaction2 = one_body2;
+        fprintf(outfile,"  Matrix element from libfock = %14.6f (Stilde) * %14.6f (int) = %20.12f\n", Stilde, interaction2, interaction2 * Stilde);
+        fprintf(outfile,"  W_a . h = %20.12f\n", alpha_one_body2);
+        fprintf(outfile,"  W_b . h = %20.12f\n", beta_one_body2);
+        fflush(outfile);
+
+
+
+
+
+
     }else if(num_alpha_nonc == 1 and num_beta_nonc == 0){
         overlap = 0.0;
 //        throw FeatureNotImplemented("CKS", "H in the case of one noncoincidence", __FILE__, __LINE__);
@@ -210,7 +364,7 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
         }
         double twoelint = Jnew->vector_dot(D);
         hamiltonian = twoelint * Stilde;
-        fprintf(outfile,"  Matrix element from libfock = %20.12f\n",twoelint);
+        fprintf(outfile,"  Matrix element from libfock = %14.6f (Stilde) * %14.6f (int) = %20.12f\n", Stilde, twoelint, hamiltonian);
     }else if(num_alpha_nonc == 2 and num_beta_nonc == 0){
         overlap = 0.0;
 //        throw FeatureNotImplemented("CKS", "H in the case of two alpha noncoincidences", __FILE__, __LINE__);

@@ -104,7 +104,7 @@ PsiReturnType cdft(Options& options)
                 // Print a molden file
                 if ( options["MOLDEN_FILE"].has_changed() ) {
                     boost::shared_ptr<MoldenWriter> molden(new MoldenWriter(new_scf));
-                    molden->write(to_string(state + 1) + "." + options.get_str("MOLDEN_FILE"));
+                    molden->write(to_string(state) + "." + options.get_str("MOLDEN_FILE"));
                 }
                 energies.push_back(new_energy);
                 ref_scf = new_scf;
@@ -129,7 +129,7 @@ PsiReturnType cdft(Options& options)
                     // Print a molden file
                     if ( options["MOLDEN_FILE"].has_changed() ) {
                         boost::shared_ptr<MoldenWriter> molden(new MoldenWriter(new_scf));
-                        molden->write(to_string(state + 1) + "_" + to_string(state + 1) + "." + options.get_str("MOLDEN_FILE"));
+                        molden->write("state_" + to_string(state) + "_irrep_" + to_string(h + 1) + "." + options.get_str("MOLDEN_FILE"));
                     }
                     energies.push_back(new_energy);
                     ref_scf = new_scf;

@@ -47,6 +47,7 @@ UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<Wav
 {
     init();
     init_excitation(ref_scf);
+    ground_state_energy = dets[0]->energy();
 }
 
 UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<Wavefunction> ref_scf, int state,int symmetry)
@@ -819,10 +820,10 @@ void UCKS::form_C_CHP_algorithm()
             }
         }
 
-        fprintf(outfile, "\n  Ground state symmetry: %s\n",ct.gamma(ground_state_symmetry_).symbol());
-        fprintf(outfile, "  Excited state symmetry: %s\n",ct.gamma(excited_state_symmetry_).symbol());
         std::sort(sorted_hp_pairs.begin(),sorted_hp_pairs.end());
         if(iteration_ == 0){
+            fprintf(outfile, "\n  Ground state symmetry: %s\n",ct.gamma(ground_state_symmetry_).symbol());
+            fprintf(outfile, "  Excited state symmetry: %s\n",ct.gamma(excited_state_symmetry_).symbol());
             fprintf(outfile, "\n  Lowest energy excitations:\n");
             fprintf(outfile, "  --------------------------------------\n");
             fprintf(outfile, "    N   Occupied     Virtual     E(eV)  \n");
@@ -1427,6 +1428,7 @@ void UCKS::save_information()
 
         if(KS::options_.get_bool("CDFT_SPIN_ADAPT")){
             spin_adapt_mixed_excitation();
+            compute_S_plus_triplet_correction();
         }
     }
 }
@@ -1659,6 +1661,130 @@ double UCKS::compute_triplet_correction()
     fprintf(outfile,"  Matrix element from functor = %20.12f\n",c2);
 
     return coupling;
+}
+
+double UCKS::compute_S_plus_triplet_correction()
+{
+    fprintf(outfile,"\n  ==> Spin-adaptatin correction using S+ <==\n");
+    CharacterTable ct = KS::molecule_->point_group()->char_table();
+    // A. Form the corresponding virtual alpha and occupied beta orbitals
+    SharedMatrix Sba = SharedMatrix(new Matrix("Sba",nbetapi_,nmopi_ - nalphapi_));
+
+    // Form <phi_b|S|phi_a>
+    TempMatrix->gemm(false,false,1.0,S_,Ca_,0.0);
+    TempMatrix2->gemm(true,false,1.0,Cb_,TempMatrix,0.0);
+
+    // Grab the virtual alpha and occupied beta blocks
+    for (int h = 0; h < nirrep_; ++h) {
+        int nmo = nmopi_[h];
+        int naocc = nalphapi_[h];
+        int navir = nmo - naocc;
+        int nbocc = nbetapi_[h];
+        double** Sba_h = Sba->pointer(h);
+        double** S_h = TempMatrix2->pointer(h);
+        for (int i = 0; i < nbocc; ++i){
+            for (int a = 0; a < navir; ++a){
+                Sba_h[i][a] = S_h[i][a + naocc];
+            }
+        }
+    }
+
+    // SVD <phi_b|S|phi_a>
+    boost::tuple<SharedMatrix, SharedVector, SharedMatrix> UsV = Sba->svd_a_temps();
+    SharedMatrix U = UsV.get<0>();
+    SharedVector sigma = UsV.get<1>();
+    SharedMatrix V = UsV.get<2>();
+    Sba->svd_a(U,sigma,V);
+
+    // B. Find the corresponding alpha and beta orbitals
+    std::vector<boost::tuple<double,int,int> > sorted_pair; // (singular value,irrep,mo in irrep)
+    for (int h = 0; h < nirrep_; ++h){
+        int npairs = sigma->dim(h);
+        for (int p = 0; p < npairs; ++p){
+            sorted_pair.push_back(boost::make_tuple(sigma->get(h,p),h,p));  // N.B. shifted wrt to full indexing
+        }
+    }
+    std::sort(sorted_pair.begin(),sorted_pair.end(),std::greater<boost::tuple<double,int,int> >());
+
+    // Print some useful information
+    int npairs = std::min(10,static_cast<int>(sorted_pair.size()));
+    fprintf(outfile,"  Most important corresponding occupied/virtual orbitals:\n\n");
+    fprintf(outfile,"  Pair  Irrep  MO  <phib_|phi_a>\n");
+    for (int p = 0; p < npairs; ++p){
+        fprintf(outfile,"    %2d     %3s %4d   %9.6f\n",p,ct.gamma(sorted_pair[p].get<1>()).symbol(),sorted_pair[p].get<2>(),sorted_pair[p].get<0>());
+    }
+
+    // C. Transform the alpha virtual and beta occupied orbitals to the new representation
+    // Transform Ca_ with V (need to transpose V since svd returns V^T)
+    TempMatrix->identity();
+    for (int h = 0; h < nirrep_; ++h) {
+        int rows = V->rowdim(h);
+        int cols = V->coldim(h);
+        int naocc = nalphapi_[h];
+        double** V_h = V->pointer(h);
+        double** T_h = TempMatrix->pointer(h);
+        for (int i = 0; i < rows; ++i){
+            for (int j = 0; j < cols; ++j){
+                T_h[i + naocc][j + naocc] = V_h[i][j]; // Offset by the number of occupied MOs
+            }
+        }
+    }
+    TempMatrix2->copy(Ca_);
+    Ca_->gemm(false,true,1.0,TempMatrix2,TempMatrix,0.0);
+
+    // Transform Cb_ with U (reversing the order so that the corresponding orbital is the first to be excluded)
+    TempMatrix->identity();
+    for (int h = 0; h < nirrep_; ++h) {
+        int rows = U->rowdim(h);
+        int cols = U->coldim(h);
+        double** U_h = U->pointer(h);
+        double** T_h = TempMatrix->pointer(h);
+        for (int i = 0; i < rows; ++i){
+            for (int j = 0; j < cols; ++j){
+                T_h[i][j] = U_h[i][rows - j - 1]; // invert the order
+            }
+        }
+    }
+    TempMatrix2->copy(Cb_);
+    Cb_->gemm(false,false,1.0,TempMatrix2,TempMatrix,0.0);
+
+    fprintf(outfile,"\n  Original occupation numbers:\n");
+    fprintf(outfile, "\tNA   [ ");
+    for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nalphapi_[h]);
+    fprintf(outfile, " %4d ]\n", nalphapi_[nirrep_-1]);
+    fprintf(outfile, "\tNB   [ ");
+    for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nbetapi_[h]);
+    fprintf(outfile, " %4d ]\n", nbetapi_[nirrep_-1]);
+    int mo_h = sorted_pair[0].get<1>();
+
+    fprintf(outfile,"\n  Final occupation numbers:\n");
+    nalphapi_[mo_h] += 1;
+    nbetapi_[mo_h]  -= 1;
+    for (int h = 0; h < nirrep_; ++h) {
+        soccpi_[h] = std::abs(nalphapi_[h] - nbetapi_[h]);
+        doccpi_[h] = std::min(nalphapi_[h] , nbetapi_[h]);
+    }
+    fprintf(outfile, "\tNA   [ ");
+    for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nalphapi_[h]);
+    fprintf(outfile, " %4d ]\n", nalphapi_[nirrep_-1]);
+    fprintf(outfile, "\tNB   [ ");
+    for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nbetapi_[h]);
+    fprintf(outfile, " %4d ]\n", nbetapi_[nirrep_-1]);
+
+    // Compute the density matrices with the new occupation
+    form_G();
+    form_F();
+    form_D();
+
+    // Compute the triplet energy from the density matrices
+    double triplet_energy = compute_E();
+
+    double triplet_exc_energy = triplet_energy - ground_state_energy;
+    fprintf(outfile,"\n  Excited triplet state (S+): excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+            triplet_exc_energy,triplet_exc_energy * _hartree2ev, triplet_exc_energy * _hartree2wavenumbers);
+    double singlet_exc_energy = 2.0 * E_ - triplet_energy - ground_state_energy;
+    fprintf(outfile,"  Excited singlet state (S+): excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+            singlet_exc_energy,singlet_exc_energy * _hartree2ev, singlet_exc_energy * _hartree2wavenumbers);
 }
 
 void UCKS::extract_square_subblock(SharedMatrix A, SharedMatrix B, bool occupied, Dimension npi, double diagonal_shift)
