@@ -1778,12 +1778,15 @@ double UCKS::compute_S_plus_triplet_correction()
 
     // Compute the triplet energy from the density matrices
     double triplet_energy = compute_E();
-
     double triplet_exc_energy = triplet_energy - ground_state_energy;
-    fprintf(outfile,"\n  Excited triplet state (S+): excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+    fprintf(outfile,"\n  Excited triplet state %d-%s : excitation energy (S+) = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+            state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
+            ct.gamma(excited_state_symmetry_).symbol(),
             triplet_exc_energy,triplet_exc_energy * _hartree2ev, triplet_exc_energy * _hartree2wavenumbers);
     double singlet_exc_energy = 2.0 * E_ - triplet_energy - ground_state_energy;
-    fprintf(outfile,"  Excited singlet state (S+): excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+    fprintf(outfile,"  Excited singlet state %d-%s : excitation energy (S+) = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+            state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
+            ct.gamma(excited_state_symmetry_).symbol(),
             singlet_exc_energy,singlet_exc_energy * _hartree2ev, singlet_exc_energy * _hartree2wavenumbers);
 }
 
