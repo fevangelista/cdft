@@ -1461,16 +1461,29 @@ void UCKS::save_fock()
 
 void UCKS::spin_adapt_mixed_excitation()
 {
+    CharacterTable ct = KS::molecule_->point_group()->char_table();
     SharedDeterminant D1 = SharedDeterminant(new Determinant(E_,Ca_,Cb_,nalphapi_,nbetapi_));
     SharedDeterminant D2 = SharedDeterminant(new Determinant(E_,Cb_,Ca_,nbetapi_,nalphapi_));
     std::pair<double,double> M12 = matrix_element(D1,D2);
     double S12 = M12.first;
     double H12 = M12.second;
-    double triplet_exc_energy = E_ - H12 - ground_state_energy;
-    fprintf(outfile,"  Excited triplet state : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+    double triplet_exc_energy = (E_ - H12)/(1.0 - S12) - ground_state_energy;
+    double singlet_exc_energy = (E_ + H12)/(1.0 + S12) - ground_state_energy;
+    fprintf(outfile,"\n\n  H12  %d-%s = %15.9f\n",
+            state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
+            ct.gamma(excited_state_symmetry_).symbol(),H12);
+    fprintf(outfile,"  S12  %d-%s = %15.9f\n\n",
+            state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
+            ct.gamma(excited_state_symmetry_).symbol(),S12);
+
+    fprintf(outfile,"\n  Excited triplet state %d-%s : excitation energy (CI) = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+            state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
+            ct.gamma(excited_state_symmetry_).symbol(),
             triplet_exc_energy,triplet_exc_energy * _hartree2ev, triplet_exc_energy * _hartree2wavenumbers);
-    double singlet_exc_energy = E_ + H12 - ground_state_energy;
-    fprintf(outfile,"  Excited singlet state : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+
+    fprintf(outfile,"  Excited singlet state %d-%s : excitation energy (CI) = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+            state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
+            ct.gamma(excited_state_symmetry_).symbol(),
             singlet_exc_energy,singlet_exc_energy * _hartree2ev, singlet_exc_energy * _hartree2wavenumbers);
 }
 
@@ -1709,7 +1722,7 @@ double UCKS::compute_S_plus_triplet_correction()
     // Print some useful information
     int npairs = std::min(10,static_cast<int>(sorted_pair.size()));
     fprintf(outfile,"  Most important corresponding occupied/virtual orbitals:\n\n");
-    fprintf(outfile,"  Pair  Irrep  MO  <phib_|phi_a>\n");
+    fprintf(outfile,"  Pair  Irrep  MO  <phi_b|phi_a>\n");
     for (int p = 0; p < npairs; ++p){
         fprintf(outfile,"    %2d     %3s %4d   %9.6f\n",p,ct.gamma(sorted_pair[p].get<1>()).symbol(),sorted_pair[p].get<2>(),sorted_pair[p].get<0>());
     }
