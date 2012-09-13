@@ -44,6 +44,8 @@ int read_options(std::string name, Options& options)
         options.add_str("CDFT_EXC_METHOD","CH","CP CH CHP CHP-F");
         /*- An array of dimension equal to then number of irreps that allows to select a given hole/particle excitation -*/
         options.add("CDFT_EXC_SELECT", new ArrayType());
+        /*- An array of dimension equal to then number of irreps that allows to select an excitation with given symmetry-*/
+        options.add("CDFT_EXC_HOLE_SYMMETRY", new ArrayType());
         /*- Select the excited hole to target -*/
         options.add_str("CDFT_EXC_HOLE","VALENCE","VALENCE CORE");
         /*- The threshold for the gradient of the constraint -*/

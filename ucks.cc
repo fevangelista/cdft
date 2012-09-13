@@ -845,11 +845,26 @@ void UCKS::form_C_CHP_algorithm()
             fprintf(outfile, "  --------------------------------------\n");
 
             int select_pair = 0;
+            // Select the excitation pair using the energetic ordering
             if(KS::options_["CDFT_EXC_SELECT"].has_changed()){
                 int input_select = KS::options_["CDFT_EXC_SELECT"][excited_state_symmetry_].to_integer();
                 if (input_select > 0){
                     select_pair = input_select - 1;
                     fprintf(outfile, "\n  Following excitation #%d: ",input_select);
+                }
+            }
+            // Select the excitation pair using the symmetry of the hole
+            if(KS::options_["CDFT_EXC_HOLE_SYMMETRY"].has_changed()){
+                int input_select = KS::options_["CDFT_EXC_HOLE_SYMMETRY"][excited_state_symmetry_].to_integer();
+                if (input_select > 0){
+                    int maxstates = static_cast<int>(sorted_hp_pairs.size());
+                    for (int n = 0; n < maxstates; ++n){
+                        if(sorted_hp_pairs[n].get<1>() == input_select - 1){
+                            select_pair = n;
+                            break;
+                        }
+                    }
+                    fprintf(outfile, "\n  Following excitation #%d:\n",select_pair + 1);
                 }
             }
             hole_h = sorted_hp_pairs[select_pair].get<1>();
@@ -860,7 +875,8 @@ void UCKS::form_C_CHP_algorithm()
             part_mo = sorted_hp_pairs[select_pair].get<5>();
 //            part_energy = sorted_hp_pairs[select_pair].get<6>();
         }else{
-            if(not KS::options_["CDFT_EXC_SELECT"].has_changed()){
+            if(not (KS::options_["CDFT_EXC_SELECT"].has_changed() or
+                    KS::options_["CDFT_EXC_HOLE_SYMMETRY"].has_changed())){
                 hole_h = sorted_hp_pairs[0].get<1>();
                 hole_mo = sorted_hp_pairs[0].get<2>();
                 part_h = sorted_hp_pairs[0].get<4>();
