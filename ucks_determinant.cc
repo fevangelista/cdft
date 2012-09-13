@@ -363,8 +363,9 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
             }
         }
         double twoelint = Jnew->vector_dot(D);
-        hamiltonian = twoelint * Stilde;
-        fprintf(outfile,"  Matrix element from libfock = %14.6f (Stilde) * %14.6f (int) = %20.12f\n", Stilde, twoelint, hamiltonian);
+        hamiltonian = twoelint * std::fabs(Stilde);
+        fprintf(outfile,"\n\n  Warning, the code is using the absolute value of Stilde.  Hope for the best!\n\n");
+        fprintf(outfile,"  Matrix element from libfock = |%.6f| (Stilde) * %14.6f (int) = %20.12f\n", Stilde, twoelint, hamiltonian);
     }else if(num_alpha_nonc == 2 and num_beta_nonc == 0){
         overlap = 0.0;
 //        throw FeatureNotImplemented("CKS", "H in the case of two alpha noncoincidences", __FILE__, __LINE__);

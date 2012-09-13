@@ -1,4 +1,3 @@
-
 #include <ucks.h>
 #include <physconst.h>
 #include <libmints/view.h>
@@ -31,6 +30,8 @@ UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio)
   state_(0)
 {
     init();
+    gs_Fa_ = Fa_;
+    gs_Fb_ = Fb_;
 }
 
 UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<Wavefunction> ref_scf, int state)
@@ -161,18 +162,24 @@ void UCKS::init_excitation(boost::shared_ptr<Wavefunction> ref_scf)
     lambda_o_ = factory_->create_shared_vector("lambda_o");
     lambda_v_ = factory_->create_shared_vector("lambda_v");
 
+
     // Save the reference state MOs and occupation numbers
     fprintf(outfile,"  Saving the reference orbitals for an excited state computation\n");
     UCKS* ucks_ptr = dynamic_cast<UCKS*>(ref_scf.get());
+    gs_Fa_ = ucks_ptr->gs_Fa_;
+    gs_Fb_ = ucks_ptr->gs_Fb_;
     if(do_symmetry and (state_ == 1)){  // If we are starting with a new irrep save only the ground state wfn
         dets.push_back(ucks_ptr->dets[0]);
+//        nalphapi_ = dets[0]->nalphapi();
+//        nbetapi_ = dets[0]->nbetapi();
+        Fa_->copy(gs_Fa_);
+        Fb_->copy(gs_Fb_);
     }else{
         dets = ucks_ptr->dets;
+        // Set the Fock matrix to the converged Fock matrix for the previous state
+        Fa_->copy(ref_scf->Fa());
+        Fb_->copy(ref_scf->Fb());
     }
-
-    // Set the Fock matrix to the converged Fock matrix for the previous state
-    Fa_->copy(ref_scf->Fa());
-    Fb_->copy(ref_scf->Fb());
 }
 
 UCKS::~UCKS()
@@ -724,17 +731,14 @@ void UCKS::form_C_CHP_algorithm()
     if (nstate > 1)
         throw FeatureNotImplemented("CKS", "Cannot treat more than one excited state in the CHP method", __FILE__, __LINE__);
 
-    // Data structures to save the hole information
     Dimension aholepi(nirrep_,"Alpha holes per irrep");
+    Dimension apartpi(nirrep_,"Alpha particles per irrep");
     std::vector<SharedVector> holes_Ca;
     std::vector<int> holes_h;
-    std::vector<double> holes_energy;
-
-    // Data structures to save the particle information
-    Dimension apartpi(nirrep_,"Alpha particles per irrep");
     std::vector<SharedVector> parts_Ca;
     std::vector<int> parts_h;
-    std::vector<double> parts_energy;
+
+
 
     // Compute the hole and particle states
     for (int m = 0; m < nstate; ++m){
@@ -839,20 +843,48 @@ void UCKS::form_C_CHP_algorithm()
                         energy_hp * _hartree2ev);
             }
             fprintf(outfile, "  --------------------------------------\n");
+
+            int select_pair = 0;
+            if(KS::options_["CDFT_EXC_SELECT"].has_changed()){
+                int input_select = KS::options_["CDFT_EXC_SELECT"][excited_state_symmetry_].to_integer();
+                if (input_select > 0){
+                    select_pair = input_select - 1;
+                    fprintf(outfile, "\n  Following excitation #%d: ",input_select);
+                }
+            }
+            hole_h = sorted_hp_pairs[select_pair].get<1>();
+            hole_mo = sorted_hp_pairs[select_pair].get<2>();
+//            hole_energy = sorted_hp_pairs[select_pair].get<3>();
+
+            part_h = sorted_hp_pairs[select_pair].get<4>();
+            part_mo = sorted_hp_pairs[select_pair].get<5>();
+//            part_energy = sorted_hp_pairs[select_pair].get<6>();
+        }else{
+            if(not KS::options_["CDFT_EXC_SELECT"].has_changed()){
+                hole_h = sorted_hp_pairs[0].get<1>();
+                hole_mo = sorted_hp_pairs[0].get<2>();
+                part_h = sorted_hp_pairs[0].get<4>();
+                part_mo = sorted_hp_pairs[0].get<5>();
+    //            double hole_energy = sorted_hp_pairs[0].get<3>();
+    //            double part_energy = sorted_hp_pairs[0].get<6>();
+            }
         }
 
-        int hole_h = sorted_hp_pairs[0].get<1>();
-        int hole_mo = sorted_hp_pairs[0].get<2>();
-        double hole_energy = sorted_hp_pairs[0].get<3>();
+//        int hole_h = sorted_hp_pairs[0].get<1>();
+//        int hole_mo = sorted_hp_pairs[0].get<2>();
+        double hole_energy = lambda_o_->get(hole_h,hole_mo);
 
-        int part_h = sorted_hp_pairs[0].get<4>();
-        int part_mo = sorted_hp_pairs[0].get<5>();
-        double part_energy = sorted_hp_pairs[0].get<6>();
-
-        fprintf(outfile,"   constrained hole     %d :(irrep = %d,mo = %d,energy = %.6f)\n",
-                        m,hole_h,hole_mo,hole_energy);
-        fprintf(outfile,"   constrained particle %d :(irrep = %d,mo = %d,energy = %.6f)\n",
-                m,part_h,part_mo + dets[m]->nalphapi()[part_h],part_energy);
+//        int part_h = sorted_hp_pairs[0].get<4>();
+//        int part_mo = sorted_hp_pairs[0].get<5>();
+        double part_energy = lambda_v_->get(part_h,part_mo);
+        fprintf(outfile,"                     "
+                "%4d%-3s (%9.3f) -> %4d%-3s (%9.3f)\n",
+                hole_mo + 1,
+                ct.gamma(hole_h).symbol(),
+                hole_energy,
+                dets[m]->nalphapi()[part_h] + part_mo + 1,
+                ct.gamma(part_h).symbol(),
+                part_energy);
 
         // Compute the hole orbital
         SharedVector hole_Ca = factory_->create_shared_vector("Hole");
@@ -865,7 +897,6 @@ void UCKS::form_C_CHP_algorithm()
         }
         holes_Ca.push_back(hole_Ca);
         holes_h.push_back(hole_h);
-        holes_energy.push_back(hole_energy);
         aholepi[hole_h] += 1;
 
         // Compute the particle orbital
@@ -880,7 +911,6 @@ void UCKS::form_C_CHP_algorithm()
         }
         parts_Ca.push_back(part_Ca);
         parts_h.push_back(part_h);
-        parts_energy.push_back(part_energy);
         apartpi[part_h] += 1;
     }
 

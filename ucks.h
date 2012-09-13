@@ -91,7 +91,13 @@ protected:
     SharedVector lambda_o_;
     /// The eigenvalues of PvFPv
     SharedVector lambda_v_;
-
+    /// The irrep of the holes
+    int hole_h;
+    int hole_mo;
+    int part_h;
+    int part_mo;
+    SharedMatrix gs_Fa_;
+    SharedMatrix gs_Fb_;
 
     /// The alpha penalty function
     SharedMatrix Pa;
