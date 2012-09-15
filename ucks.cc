@@ -1724,7 +1724,7 @@ double UCKS::compute_triplet_correction()
 
 double UCKS::compute_S_plus_triplet_correction()
 {
-    fprintf(outfile,"\n  ==> Spin-adaptatin correction using S+ <==\n");
+    fprintf(outfile,"\n  ==> Spin-adaptation correction using S+ <==\n");
     CharacterTable ct = KS::molecule_->point_group()->char_table();
     // A. Form the corresponding virtual alpha and occupied beta orbitals
     SharedMatrix Sba = SharedMatrix(new Matrix("Sba",nbetapi_,nmopi_ - nalphapi_));

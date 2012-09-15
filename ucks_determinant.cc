@@ -38,7 +38,7 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
     SharedVector s_b = cbeta.get<2>();
 
     // Compute the number of noncoincidences
-    double noncoincidence_threshold = 1.0e-4;
+    double noncoincidence_threshold = 1.0e-9;
 
     std::vector<boost::tuple<int,int,double> > Aalpha_nonc;
     std::vector<boost::tuple<int,int,double> > Balpha_nonc;
@@ -398,6 +398,8 @@ UCKS::corresponding_orbitals(SharedMatrix A, SharedMatrix B, Dimension dima, Dim
             }
         }
     }
+//    Sba->print();
+
     // SVD <B|S|A>
     boost::tuple<SharedMatrix, SharedVector, SharedMatrix> UsV = Sba->svd_a_temps();
     SharedMatrix U = UsV.get<0>();
@@ -452,8 +454,12 @@ UCKS::corresponding_orbitals(SharedMatrix A, SharedMatrix B, Dimension dima, Dim
         if(nmo > 1){
             double d = 1.0;
             int* indx = new int[nmo];
-            ludcmp(U->pointer(h),nmo,indx,&d);
+            double** ptrU = U->pointer(h);
+            ludcmp(ptrU,nmo,indx,&d);
             detU *= d;
+            for (int i = 0; i < nmo; ++i){
+                detU *= ptrU[i][i];
+            }
             delete[] indx;
         }
     }
@@ -463,8 +469,12 @@ UCKS::corresponding_orbitals(SharedMatrix A, SharedMatrix B, Dimension dima, Dim
         if(nmo > 1){
             double d = 1.0;
             int* indx = new int[nmo];
-            ludcmp(V->pointer(h),nmo,indx,&d);
+            double** ptrV = V->pointer(h);
+            ludcmp(ptrV,nmo,indx,&d);
             detV *= d;
+            for (int i = 0; i < nmo; ++i){
+                detV *= ptrV[i][i];
+            }
             delete[] indx;
         }
     }
