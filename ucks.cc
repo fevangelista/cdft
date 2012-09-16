@@ -261,6 +261,95 @@ void UCKS::save_density_and_energy()
     Eold_ = E_;
 }
 
+void UCKS::form_G()
+{
+    timer_on("Form V");
+    form_V();
+    timer_off("Form V");
+
+    if (scf_type_ == "DF" || scf_type_ == "PS") {
+
+        // Push the C matrix on
+        std::vector<SharedMatrix> & C = jk_->C_left();
+        C.clear();
+        C.push_back(Ca_subset("SO", "OCC"));
+        C.push_back(Cb_subset("SO", "OCC"));
+
+        // Run the JK object
+        jk_->compute();
+
+        // Pull the J and K matrices off
+        const std::vector<SharedMatrix> & J = jk_->J();
+        const std::vector<SharedMatrix> & K = jk_->K();
+        const std::vector<SharedMatrix> & wK = jk_->wK();
+        J_->copy(J[0]);
+        J_->add(J[1]);
+        if (functional_->is_x_hybrid()) {
+            Ka_ = K[0];
+            Kb_ = K[1];
+        }
+        if (functional_->is_x_lrc()) {
+            wKa_ = wK[0];
+            wKb_ = wK[1];
+        }
+        Ga_->copy(J_);
+        Gb_->copy(J_);
+
+    } else {        
+        throw FeatureNotImplemented("UCKS", "The CDFT code can only run with the option scf_type = df .", __FILE__, __LINE__);
+
+//        if (functional_->is_x_lrc()) {
+//            Omega_Ka_Kb_Functor k_builder(functional_->x_omega(),wKa_,wKb_,Da_,Db_,Ca_,Cb_,nalphapi_,nbetapi_);
+//            process_omega_tei<Omega_Ka_Kb_Functor>(k_builder);
+//        }
+
+//        // This will build J (stored in G) and K
+//        J_Ka_Kb_Functor jk_builder(Ga_, Ka_, Kb_, Da_, Db_, Ca_, Cb_, nalphapi_, nbetapi_);
+//        process_tei<J_Ka_Kb_Functor>(jk_builder);
+//        J_->copy(Ga_);
+//        Gb_->copy(Ga_);
+    }
+
+    Ga_->add(Va_);
+    Gb_->add(Vb_);
+
+    double alpha = functional_->x_alpha();
+    double beta = 1.0 - alpha;
+    if (alpha != 0.0) {
+        Ka_->scale(alpha);
+        Kb_->scale(alpha);
+        Ga_->subtract(Ka_);
+        Gb_->subtract(Kb_);
+        Ka_->scale(1.0/alpha);
+        Kb_->scale(1.0/alpha);
+    } else {
+        Ka_->zero();
+        Kb_->zero();
+    }
+
+    if (functional_->is_x_lrc()) {
+        wKa_->scale(beta);
+        wKb_->scale(beta);
+        Ga_->subtract(wKa_);
+        Gb_->subtract(wKb_);
+        wKa_->scale(1.0/beta);
+        wKb_->scale(1.0/beta);
+    } else {
+        wKa_->zero();
+        wKb_->zero();
+    }
+
+    if (debug_ > 2) {
+        J_->print(outfile);
+        Ka_->print(outfile);
+        Kb_->print(outfile);
+        wKa_->print(outfile);
+        wKb_->print(outfile);
+        Va_->print();
+        Vb_->print();
+    }
+}
+
 void UCKS::form_F()
 {
     // On the first iteration save H_

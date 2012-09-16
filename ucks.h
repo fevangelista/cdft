@@ -201,6 +201,7 @@ protected:
 
     // Overloaded UKS function
     virtual void save_density_and_energy();
+    virtual void form_G();
     virtual void form_F();
     virtual void form_C();
     virtual double compute_E();

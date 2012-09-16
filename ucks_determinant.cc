@@ -139,20 +139,7 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
     }
     fflush(outfile);
 
-    boost::shared_ptr<JK> jk = JK::build_JK();
-//    boost::shared_ptr<BasisSetParser> parser(new Gaussian94BasisSetParser());
-//    boost::shared_ptr<BasisSet> primary = BasisSet::construct(parser, Process::environment.molecule(), "BASIS");
-//    boost::shared_ptr<BasisSet> auxiliary = BasisSet::construct(parser, primary->molecule(), "DF_BASIS_SCF");
-//    boost::shared_ptr<JK> jk(new DFJK(primary,auxiliary));
-//    // 800 MB Memory, 100 M doubles
-//    jk->set_memory(100000000L);
-//    // Cutoff of 1.0E-12
-//    jk->set_cutoff(1.0E-12);
-//    // Do J/K, Not wK (superfluous)
-//    jk->set_do_J(true);
-//    jk->set_do_K(true);
-//    jk->set_do_wK(false);
-    jk->initialize();
+//    boost::shared_ptr<JK> jk = JK::build_JK();
     if(num_alpha_nonc == 0 and num_beta_nonc == 0){
         overlap =Stilde;
         // Build the W^BA alpha density matrix
@@ -230,21 +217,21 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
             }
         }
 
-        std::vector<SharedMatrix>& C_left = jk->C_left();
+        std::vector<SharedMatrix>& C_left = jk_->C_left();
         C_left.clear();
         C_left.push_back(scaled_BCa);
         C_left.push_back(scaled_BCb);
-        std::vector<SharedMatrix>& C_right = jk->C_right();
+        std::vector<SharedMatrix>& C_right = jk_->C_right();
         C_right.clear();
         C_right.push_back(scaled_ACa);
         C_right.push_back(scaled_ACb);
-        jk->compute();
-        const std::vector<SharedMatrix >& Dn = jk->D();
+        jk_->compute();
+        const std::vector<SharedMatrix >& Dn = jk_->D();
 
-        SharedMatrix Ja = jk->J()[0];
-        SharedMatrix Jb = jk->J()[1];
-        SharedMatrix Ka = jk->K()[0];
-        SharedMatrix Kb = jk->K()[1];
+        SharedMatrix Ja = jk_->J()[0];
+        SharedMatrix Jb = jk_->J()[1];
+        SharedMatrix Ka = jk_->K()[0];
+        SharedMatrix Kb = jk_->K()[1];
         double WJW_aa = Ja->vector_dot(W_BA_a);
         double WJW_bb = Jb->vector_dot(W_BA_b);
         double WJW_ba = Jb->vector_dot(W_BA_a);
@@ -342,16 +329,16 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
             B_b->set(b_beta_h,m,0,BCb->get(b_beta_h,m,b_beta_mo));
         }
 
-        std::vector<SharedMatrix>& C_left = jk->C_left();
+        std::vector<SharedMatrix>& C_left = jk_->C_left();
         C_left.clear();
         C_left.push_back(B_b);
-        std::vector<SharedMatrix>& C_right = jk->C_right();
+        std::vector<SharedMatrix>& C_right = jk_->C_right();
         C_right.clear();
         C_right.push_back(A_b);
-        jk->compute();
-        const std::vector<SharedMatrix >& Dn = jk->D();
+        jk_->compute();
+        const std::vector<SharedMatrix >& Dn = jk_->D();
 
-        SharedMatrix Jnew = jk->J()[0];
+        SharedMatrix Jnew = jk_->J()[0];
 
         SharedMatrix D = SharedMatrix(new Matrix("D",nirrep_, nsopi_, nsopi_, a_alpha_h ^ b_alpha_h));
         D->zero();
@@ -373,7 +360,6 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
         overlap = 0.0;
 //        throw FeatureNotImplemented("CKS", "H in the case of two beta noncoincidences", __FILE__, __LINE__);
     }
-    jk->finalize();
     fflush(outfile);
     return std::make_pair(overlap,hamiltonian);
 }
