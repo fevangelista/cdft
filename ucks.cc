@@ -329,7 +329,9 @@ void UCKS::form_G()
         Ka_->zero();
         Kb_->zero();
     }
-    if (functional_->name() == "HSE"){
+
+    std::string functional_prefix = functional_->name().substr(0,2);
+    if (functional_prefix == "sr"){
         wKa_->scale(-alpha);
         wKb_->scale(-alpha);
         Ga_->subtract(wKa_);
@@ -1466,7 +1468,9 @@ double UCKS::compute_E()
         exchange_E -= alpha*Da_->vector_dot(Ka_);
         exchange_E -= alpha*Db_->vector_dot(Kb_);
     }
-    if (functional_->name() == "HSE"){
+
+    std::string functional_prefix = functional_->name().substr(0,2);
+    if (functional_prefix == "sr"){
         exchange_E +=  alpha * Da_->vector_dot(wKa_);
         exchange_E +=  alpha * Db_->vector_dot(wKb_);
     }else{
