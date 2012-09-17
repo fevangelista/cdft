@@ -270,10 +270,13 @@ void UCKS::form_G()
     if (scf_type_ == "DF" || scf_type_ == "PS") {
 
         // Push the C matrix on
-        std::vector<SharedMatrix> & C = jk_->C_left();
-        C.clear();
-        C.push_back(Ca_subset("SO", "OCC"));
-        C.push_back(Cb_subset("SO", "OCC"));
+        std::vector<SharedMatrix> & Cl = jk_->C_left();
+        Cl.clear();
+        Cl.push_back(Ca_subset("SO", "OCC"));
+        Cl.push_back(Cb_subset("SO", "OCC"));
+        // Clear the right vector if it was not done before
+        std::vector<SharedMatrix> & Cr = jk_->C_right();
+        Cr.clear();
 
         // Run the JK object
         jk_->compute();
@@ -1528,25 +1531,32 @@ bool UCKS::test_convergency()
         bool constraint_test = gradW->norm() < gradW_threshold_;
         constraint_optimization();
         if(energy_test and density_test and constraint_test and cycle_test){
-//            if(do_excitation){
-////                double E_T = compute_triplet_correction();
-////                double exc_energy = E_ - E_T - ground_state_energy;
-////                fprintf(outfile,"  Excited triplet state : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
-////                        exc_energy,exc_energy * _hartree2ev, exc_energy * _hartree2wavenumbers);
-////                exc_energy = E_ + E_T - ground_state_energy;
-////                fprintf(outfile,"  Excited singlet state : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
-////                        exc_energy,exc_energy * _hartree2ev, exc_energy * _hartree2wavenumbers);
-//            }
+            if(do_excitation){
+                double mixlet_exc_energy = E_ - ground_state_energy;
+                fprintf(outfile,"  Excited mixed state   : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+                        mixlet_exc_energy,mixlet_exc_energy * _hartree2ev, mixlet_exc_energy * _hartree2wavenumbers);
+
+                if(KS::options_.get_bool("CDFT_SPIN_ADAPT")){
+                    spin_adapt_mixed_excitation();
+                    compute_S_plus_triplet_correction();
+                }
+            }
             return true;
         }else{
             return false;
         }
     }else{
         if(energy_test and density_test and cycle_test){
-//            if(do_excitation){
-//                double E_T = compute_triplet_correction();
-//                fprintf(outfile,"  Energy corrected for triplet component = %20.12f (%.12f)",2.0 * E_ - E_T,E_T);
-//            }
+            if(do_excitation){
+                double mixlet_exc_energy = E_ - ground_state_energy;
+                fprintf(outfile,"  Excited mixed state   : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+                        mixlet_exc_energy,mixlet_exc_energy * _hartree2ev, mixlet_exc_energy * _hartree2wavenumbers);
+
+                if(KS::options_.get_bool("CDFT_SPIN_ADAPT")){
+                    spin_adapt_mixed_excitation();
+                    compute_S_plus_triplet_correction();
+                }
+            }
             return true;
         }
         return false;
@@ -1556,16 +1566,6 @@ bool UCKS::test_convergency()
 void UCKS::save_information()
 {
     dets.push_back(SharedDeterminant(new Determinant(E_,Ca_,Cb_,nalphapi_,nbetapi_)));
-    if(do_excitation){
-        double mixlet_exc_energy = E_ - ground_state_energy;
-        fprintf(outfile,"  Excited mixed state   : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
-                mixlet_exc_energy,mixlet_exc_energy * _hartree2ev, mixlet_exc_energy * _hartree2wavenumbers);
-
-        if(KS::options_.get_bool("CDFT_SPIN_ADAPT")){
-            spin_adapt_mixed_excitation();
-            compute_S_plus_triplet_correction();
-        }
-    }
 }
 
 void UCKS::save_fock()
