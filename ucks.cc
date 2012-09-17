@@ -329,17 +329,25 @@ void UCKS::form_G()
         Ka_->zero();
         Kb_->zero();
     }
-
-    if (functional_->is_x_lrc()) {
-        wKa_->scale(beta);
-        wKb_->scale(beta);
+    if (functional_->name() == "HSE"){
+        wKa_->scale(-alpha);
+        wKb_->scale(-alpha);
         Ga_->subtract(wKa_);
         Gb_->subtract(wKb_);
-        wKa_->scale(1.0/beta);
-        wKb_->scale(1.0/beta);
-    } else {
-        wKa_->zero();
-        wKb_->zero();
+        wKa_->scale(-1.0/alpha);
+        wKb_->scale(-1.0/alpha);
+    } else{
+        if (functional_->is_x_lrc()) {
+            wKa_->scale(beta);
+            wKb_->scale(beta);
+            Ga_->subtract(wKa_);
+            Gb_->subtract(wKb_);
+            wKa_->scale(1.0/beta);
+            wKb_->scale(1.0/beta);
+        } else {
+            wKa_->zero();
+            wKb_->zero();
+        }
     }
 
     if (debug_ > 2) {
@@ -1458,9 +1466,14 @@ double UCKS::compute_E()
         exchange_E -= alpha*Da_->vector_dot(Ka_);
         exchange_E -= alpha*Db_->vector_dot(Kb_);
     }
-    if (functional_->is_x_lrc()) {
-        exchange_E -=  beta*Da_->vector_dot(wKa_);
-        exchange_E -=  beta*Db_->vector_dot(wKb_);
+    if (functional_->name() == "HSE"){
+        exchange_E +=  alpha * Da_->vector_dot(wKa_);
+        exchange_E +=  alpha * Db_->vector_dot(wKb_);
+    }else{
+        if (functional_->is_x_lrc()) {
+            exchange_E -=  beta*Da_->vector_dot(wKa_);
+            exchange_E -=  beta*Db_->vector_dot(wKb_);
+        }
     }
 
     double dashD_E = 0.0;
@@ -1531,32 +1544,12 @@ bool UCKS::test_convergency()
         bool constraint_test = gradW->norm() < gradW_threshold_;
         constraint_optimization();
         if(energy_test and density_test and constraint_test and cycle_test){
-            if(do_excitation){
-                double mixlet_exc_energy = E_ - ground_state_energy;
-                fprintf(outfile,"  Excited mixed state   : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
-                        mixlet_exc_energy,mixlet_exc_energy * _hartree2ev, mixlet_exc_energy * _hartree2wavenumbers);
-
-                if(KS::options_.get_bool("CDFT_SPIN_ADAPT")){
-                    spin_adapt_mixed_excitation();
-                    compute_S_plus_triplet_correction();
-                }
-            }
             return true;
         }else{
             return false;
         }
     }else{
         if(energy_test and density_test and cycle_test){
-            if(do_excitation){
-                double mixlet_exc_energy = E_ - ground_state_energy;
-                fprintf(outfile,"  Excited mixed state   : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
-                        mixlet_exc_energy,mixlet_exc_energy * _hartree2ev, mixlet_exc_energy * _hartree2wavenumbers);
-
-                if(KS::options_.get_bool("CDFT_SPIN_ADAPT")){
-                    spin_adapt_mixed_excitation();
-                    compute_S_plus_triplet_correction();
-                }
-            }
             return true;
         }
         return false;
@@ -1566,6 +1559,16 @@ bool UCKS::test_convergency()
 void UCKS::save_information()
 {
     dets.push_back(SharedDeterminant(new Determinant(E_,Ca_,Cb_,nalphapi_,nbetapi_)));
+    if(do_excitation){
+        double mixlet_exc_energy = E_ - ground_state_energy;
+        fprintf(outfile,"  Excited mixed state   : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+                mixlet_exc_energy,mixlet_exc_energy * _hartree2ev, mixlet_exc_energy * _hartree2wavenumbers);
+
+        if(KS::options_.get_bool("CDFT_SPIN_ADAPT")){
+            //spin_adapt_mixed_excitation();
+            compute_S_plus_triplet_correction();
+        }
+    }
 }
 
 void UCKS::save_fock()
