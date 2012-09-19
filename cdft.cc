@@ -124,7 +124,9 @@ PsiReturnType cdft(Options& options)
             }
             for (int h = 0; h < nirrep; ++h){
                 int nstates = options["ROOTS_PER_IRREP"][h].to_integer();
-                fprintf(outfile,"  Computing %d state%s of symmetry %d",nstates,nstates >1 ? "s" : "",h);
+                if (nstates > 0){
+                    fprintf(outfile,"\n\n  ==== Computing %d state%s of symmetry %d ====\n",nstates,nstates > 1 ? "s" : "",h);
+                }
                 for (int state = 1; state <= nstates; ++state){
                     boost::shared_ptr<Wavefunction> new_scf = boost::shared_ptr<Wavefunction>(new scf::UCKS(options,psio,ref_scf,state,h));
                     Process::environment.wavefunction().reset();

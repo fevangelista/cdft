@@ -1097,7 +1097,7 @@ void UCKS::form_C_CHP_algorithm()
     TempMatrix->transform(Fa_,Ca_);
     TempMatrix->transform(TempMatrix2);
     // If we want the relaxed orbitals diagonalize the Fock matrix and transform the MO coefficients
-    if(KS::options_.get_str("CDFT_EXC_METHOD") == "CHP"){
+    if(KS::options_.get_str("CDFT_EXC_METHOD") == "CHP" or KS::options_.get_str("CDFT_EXC_METHOD") == "CHP-FB"){
         TempMatrix->diagonalize(TempMatrix2,epsilon_a_);
         TempMatrix->zero();
         TempMatrix->gemm(false,false,1.0,Ca_,TempMatrix2,0.0);
