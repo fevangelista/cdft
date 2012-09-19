@@ -442,7 +442,8 @@ void UCKS:: form_C()
         }else if(KS::options_.get_str("CDFT_EXC_METHOD") == "CP"){
             form_C_CP_algorithm();
         }else if(KS::options_.get_str("CDFT_EXC_METHOD") == "CHP" or
-                 KS::options_.get_str("CDFT_EXC_METHOD") == "CHP-F"){
+                 KS::options_.get_str("CDFT_EXC_METHOD") == "CHP-F" or
+                 KS::options_.get_str("CDFT_EXC_METHOD") == "CHP-Fb"){
             form_C_CHP_algorithm();
         }
     }
