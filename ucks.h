@@ -181,6 +181,8 @@ protected:
     double compute_S_plus_triplet_correction();
     /// Compute the singlet and triplet energy of a mixed excited state
     void spin_adapt_mixed_excitation();
+    /// Compute the CIS excitation energy
+    void cis_excitation_energy();
     /// Compute the corresponding orbitals for a pair of MO sets
     boost::tuple<SharedMatrix,SharedMatrix,SharedVector,double> corresponding_orbitals(SharedMatrix A, SharedMatrix B, Dimension dima, Dimension dimb);
 

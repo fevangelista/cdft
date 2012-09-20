@@ -12,6 +12,8 @@
 #include "boost/tuple/tuple_comparison.hpp"
 #include <libiwl/iwl.hpp>
 #include <psifiles.h>
+#include <libscf_solver/integralfunctors.h>
+#include <libscf_solver/omegafunctors.h>
 
 using namespace psi;
 
@@ -264,7 +266,21 @@ void UCKS::save_density_and_energy()
 void UCKS::form_G()
 {
     timer_on("Form V");
-    form_V();
+//    form_V();
+    // Push the C matrix on
+    std::vector<SharedMatrix> & C = potential_->C();
+    C.clear();
+    C.push_back(Ca_subset("SO", "OCC"));
+    C.push_back(Cb_subset("SO", "OCC"));
+
+    // Run the potential object
+    potential_->compute(Da_,Db_);
+
+    // Pull the V matrices off
+    const std::vector<SharedMatrix> & V = potential_->V();
+    Va_ = V[0];
+    Vb_ = V[1];
+
     timer_off("Form V");
 
     if (scf_type_ == "DF" || scf_type_ == "PS") {
@@ -299,18 +315,17 @@ void UCKS::form_G()
         Gb_->copy(J_);
 
     } else {        
-        throw FeatureNotImplemented("UCKS", "The CDFT code can only run with the option scf_type = df .", __FILE__, __LINE__);
-
-//        if (functional_->is_x_lrc()) {
-//            Omega_Ka_Kb_Functor k_builder(functional_->x_omega(),wKa_,wKb_,Da_,Db_,Ca_,Cb_,nalphapi_,nbetapi_);
-//            process_omega_tei<Omega_Ka_Kb_Functor>(k_builder);
-//        }
-
-//        // This will build J (stored in G) and K
-//        J_Ka_Kb_Functor jk_builder(Ga_, Ka_, Kb_, Da_, Db_, Ca_, Cb_, nalphapi_, nbetapi_);
-//        process_tei<J_Ka_Kb_Functor>(jk_builder);
-//        J_->copy(Ga_);
-//        Gb_->copy(Ga_);
+//        throw FeatureNotImplemented("UCKS", "The CDFT code can only run with the option scf_type = df .", __FILE__, __LINE__);
+        fprintf(outfile,"\n  USing the non-JK algo\n");
+        if (functional_->is_x_lrc()) {
+            Omega_Ka_Kb_Functor k_builder(functional_->x_omega(),wKa_,wKb_,Da_,Db_,Ca_,Cb_,nalphapi_,nbetapi_);
+            process_omega_tei<Omega_Ka_Kb_Functor>(k_builder);
+        }
+        // This will build J (stored in G) and K
+        J_Ka_Kb_Functor jk_builder(Ga_, Ka_, Kb_, Da_, Db_, Ca_, Cb_, nalphapi_, nbetapi_);
+        process_tei<J_Ka_Kb_Functor>(jk_builder);
+        J_->copy(Ga_);
+        Gb_->copy(Ga_);
     }
 
     Ga_->add(Va_);
@@ -1570,10 +1585,12 @@ void UCKS::save_information()
                 mixlet_exc_energy,mixlet_exc_energy * _hartree2ev, mixlet_exc_energy * _hartree2wavenumbers);
 
         if(KS::options_.get_bool("CDFT_SPIN_ADAPT")){
-            //spin_adapt_mixed_excitation();
+            spin_adapt_mixed_excitation();
             compute_S_plus_triplet_correction();
         }
     }
+    if(KS::options_.get_str("CDFT_EXC_METHOD") == "CIS")
+        cis_excitation_energy();
 }
 
 void UCKS::save_fock()
@@ -1928,9 +1945,9 @@ double UCKS::compute_S_plus_triplet_correction()
     fprintf(outfile, " %4d ]\n", nbetapi_[nirrep_-1]);
 
     // Compute the density matrices with the new occupation
+    form_D();
     form_G();
     form_F();
-    form_D();
 
     // Compute the triplet energy from the density matrices
     double triplet_energy = compute_E();
@@ -1944,7 +1961,258 @@ double UCKS::compute_S_plus_triplet_correction()
             state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
             ct.gamma(excited_state_symmetry_).symbol(),
             singlet_exc_energy,singlet_exc_energy * _hartree2ev, singlet_exc_energy * _hartree2wavenumbers);
+
+    fprintf(outfile,"\n\n");
+    compute_spin_contamination();
+    fprintf(outfile,"\n");
 }
+
+void UCKS::cis_excitation_energy()
+{
+
+    CharacterTable ct = KS::molecule_->point_group()->char_table();
+
+    int symmetry = 0;
+    SharedMatrix ra = SharedMatrix(new Matrix("r Amplitudes",nmopi_,nmopi_,symmetry));
+    SharedMatrix rb = SharedMatrix(new Matrix("r Amplitudes",nmopi_,nmopi_,symmetry));
+    SharedMatrix genDa = factory_->create_shared_matrix("genDa");
+    SharedMatrix genDb = factory_->create_shared_matrix("genDb");
+    // Determine the hole/particle pair to follow
+    // Compute the symmetry adapted hole/particle pairs
+    std::vector<boost::tuple<double,int,int,double,int,int,double> > sorted_hp_pairs;
+    for (int h = 0; h < nirrep_; ++h){
+        int h_i = h;
+        int h_a = h ^ symmetry;
+        int nocc_i = nalphapi_[h_i];
+        int nocc_a = nalphapi_[h_a];
+        int nvir_a = nmopi_[h_a] - nalphapi_[h_a];
+        for (int i = 0; i < nocc_i; ++i){
+            for (int a = 0; a < nvir_a; ++a){
+                double e_i = epsilon_a_->get(h_i,i);
+                double e_a = epsilon_a_->get(h_a,a + nocc_a);
+                double delta_ai = e_a - e_i;
+                sorted_hp_pairs.push_back(boost::make_tuple(delta_ai,h_i,i,e_i,h_a,a + nocc_a,e_a));
+            }
+        }
+    }
+
+    std::sort(sorted_hp_pairs.begin(),sorted_hp_pairs.end());
+//    if(iteration_ == 0){
+    fprintf(outfile, "\n  Ground state symmetry: %s\n",ct.gamma(ground_state_symmetry_).symbol());
+    fprintf(outfile, "  Excited state symmetry: %s\n",ct.gamma(excited_state_symmetry_).symbol());
+    fprintf(outfile, "\n  Lowest energy excitations:\n");
+    fprintf(outfile, "  --------------------------------------\n");
+    fprintf(outfile, "    N   Occupied     Virtual     E(eV)  \n");
+    fprintf(outfile, "  --------------------------------------\n");
+    int maxstates = std::min(10,static_cast<int>(sorted_hp_pairs.size()));
+    for (int n = 0; n < maxstates; ++n){
+        double energy_hp = sorted_hp_pairs[n].get<6>() - sorted_hp_pairs[n].get<3>();
+        fprintf(outfile,"   %2d:  %4d%-3s  -> %4d%-3s   %9.3f\n",n + 1,
+                sorted_hp_pairs[n].get<2>() + 1,
+                ct.gamma(sorted_hp_pairs[n].get<1>()).symbol(),
+                sorted_hp_pairs[n].get<5>() + 1,
+                ct.gamma(sorted_hp_pairs[n].get<4>()).symbol(),
+                energy_hp * _hartree2ev);
+    }
+    fprintf(outfile, "  --------------------------------------\n");
+
+    int select_pair = 0;
+    hole_h = sorted_hp_pairs[select_pair].get<1>();
+    hole_mo = sorted_hp_pairs[select_pair].get<2>();
+    part_h = sorted_hp_pairs[select_pair].get<4>();
+    part_mo = sorted_hp_pairs[select_pair].get<5>();
+    ra->set(hole_h,hole_mo,part_mo,1.0 / std::sqrt(2.0));
+    rb->set(hole_h,hole_mo,part_mo,-1.0 / std::sqrt(2.0));
+
+    // Compute the density matrix
+    genDa->zero();
+    genDb->zero();
+
+    // C1 symmetry
+    {
+    int naocc = nalphapi_[0];
+    int navir = nmopi_[0] - nalphapi_[0];
+    int nmo = nmopi_[0];
+    double** ra_h = ra->pointer(0);
+    for (int i = 0; i < naocc; ++i){
+        for (int j = 0; j < naocc; ++j){
+            double da = (i == j ? 1.0 : 0.0);
+            for (int c = naocc; c < nmo; ++c){
+                da -= ra_h[i][c] * ra_h[j][c];
+            }
+            genDa->set(0,i,j,da);
+        }
+    }
+    for (int a = naocc; a < nmo; ++a){
+        for (int b = naocc; b < nmo; ++b){
+            double da = 0.0;
+            for (int k = 0; k < naocc; ++k){
+                da += ra_h[k][a] * ra_h[k][b];
+            }
+            genDa->set(0,a,b,da);
+        }
+    }
+
+
+    }
+
+    {
+    int nbocc = nbetapi_[0];
+    int nbvir = nmopi_[0] - nbetapi_[0];
+    int nmo = nmopi_[0];
+    double** rb_h = rb->pointer(0);
+    for (int i = 0; i < nbocc; ++i){
+        for (int j = 0; j < nbocc; ++j){
+            double db = (i == j ? 1.0 : 0.0);
+            for (int c = nbocc; c < nmo; ++c){
+                db -= rb_h[i][c] * rb_h[j][c];
+            }
+            genDb->set(0,i,j,db);
+        }
+    }
+    for (int a = nbocc; a < nmo; ++a){
+        for (int b = nbocc; b < nmo; ++b){
+            double db = 0.0;
+            for (int k = 0; k < nbocc; ++k){
+                db += rb_h[k][a] * rb_h[k][b];
+            }
+            genDb->set(0,a,b,db);
+        }
+    }
+    }
+
+//    // Off-diagonal terms
+//    for (int h = 0; h < nirrep_; ++h){
+//        int g = h ^ symmetry;
+//        int nmo_h = nmopi_[h];
+//        int nmo_g = nmopi_[h];
+//        double** ra_h = ra->pointer(h);
+//        double** ra_g = ra->pointer(g);
+//        int navir_g = nmopi_[g] - nalphapi_[g];
+//        for (int p = 0; p < nmo; ++p){
+//            for (int q = 0; q < nmo; ++q){
+//                double da = 0.0;
+//                for (int c = navir_g; c < nmo_; ++c){
+//                    da -= ra_h[p][c] * ra_h[q][c];
+//                }
+//            }
+//        }
+
+//        int navir = nmopi_[h] - nalphapi_[h];
+//        int h_a = h ^ symmetry;
+//        double** ra_h = ra->pointer(h);
+//        int nvir_ac = nmopi_[h_a] - nalphapi_[h_a];
+//        int nocc_ak = nalphapi_[h_a];
+//        for (int i = 0; i < naocc; ++i){
+//            for (int j = 0; j < naocc; ++j){
+//                double da = (i == j ? 1.0 : 0.0);
+//                for (int c = 0; c < nvir_ac; ++c){
+//                        da -= ra_h[i][c] * ra_h[j][c];
+//                }
+//                genDa->set(h,i,j,da);
+//            }
+//        }
+//        double** ra_h_a = ra->pointer(h_a);
+//        for (int a = 0; a < navir; ++a){
+//            for (int b = 0; b < navir; ++b){
+//                double da = 0.0;
+//                for (int k = 0; k < nocc_ak; ++k){
+//                        da += ra_h_a[k][a] * ra_h_a[k][b];
+//                }
+//                genDa->set(h,a + naocc,b + naocc,da);
+//            }
+//        }
+
+//        int nbocc = nbetapi_[h];
+//        int nbvir = nmopi_[h] - nbetapi_[h];
+//        double** rb_h = rb->pointer(h);
+//        int nvir_bc = nmopi_[h_a] - nbetapi_[h_a];
+//        int nocc_bk = nbetapi_[h_a];
+//        for (int i = 0; i < nbocc; ++i){
+//            for (int j = 0; j < nbocc; ++j){
+//                double db = (i == j ? 1.0 : 0.0);
+//                for (int c = 0; c < nvir_bc; ++c){
+//                        db -= rb_h[i][c] * rb_h[j][c];
+//                }
+//                genDb->set(h,i,j,db);
+//            }
+//        }
+//        double** rb_h_a = rb->pointer(h_a);
+//        for (int a = 0; a < nbvir; ++a){
+//            for (int b = 0; b < nbvir; ++b){
+//                double db = 0.0;
+//                for (int k = 0; k < nocc_ak; ++k){
+//                        db += rb_h_a[k][a] * rb_h_a[k][b];
+//                }
+//                genDb->set(h,a + nbocc,b + nbocc,db);
+//            }
+//        }
+//    }
+
+//    genDa->zero();
+//    genDb->zero();
+//    for (int n = 0; n < 5; ++n){
+
+//    }
+
+
+    Da_->back_transform(genDa,Ca_);
+    Db_->back_transform(genDb,Cb_);
+    Dt_->copy(Da_);
+    Dt_->add(Db_);
+//    nalphapi_[7] = 0;
+//    nalphapi_[2] = 1;
+
+//    form_D();
+//    for (int h = 0; h < nirrep_; ++h) {
+//        soccpi_[h] = std::abs(nalphapi_[h] - nbetapi_[h]);
+//        doccpi_[h] = std::min(nalphapi_[h] , nbetapi_[h]);
+//    }
+    form_G();
+    form_F();
+
+
+
+    // Compute the energy
+    double cis_energy = compute_E() - E_;
+    fprintf(outfile,"\n  CIS excited state = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+            cis_energy,cis_energy * _hartree2ev, cis_energy * _hartree2wavenumbers);
+}
+
+//void UCKS::form_D_cis()
+//{
+//    for (int h = 0; h < nirrep_; ++h) {
+//        int nso = nsopi_[h];
+//        int nmo = nmopi_[h];
+//        int na = nalphapi_[h];
+//        int nb = nbetapi_[h];
+
+//        if (nso == 0 || nmo == 0) continue;
+
+//        double** Ca = Ca_->pointer(h);
+//        double** Cb = Cb_->pointer(h);
+//        double** Da = Da_->pointer(h);
+//        double** Db = Db_->pointer(h);
+
+//        if (na == 0)
+//            ::memset(static_cast<void*>(Da[0]), '\0', sizeof(double)*nso*nso);
+//        if (nb == 0)
+//            ::memset(static_cast<void*>(Db[0]), '\0', sizeof(double)*nso*nso);
+
+//        C_DGEMM('N','T',nso,nso,na,1.0,Ca[0],nmo,Ca[0],nmo,0.0,Da[0],nso);
+//        C_DGEMM('N','T',nso,nso,nb,1.0,Cb[0],nmo,Cb[0],nmo,0.0,Db[0],nso);
+
+//    }
+
+//    Dt_->copy(Da_);
+//    Dt_->add(Db_);
+
+//    if (debug_) {
+//        fprintf(outfile, "in UHF::form_D:\n");
+//        Da_->print();
+//        Db_->print();
+//    }
+//}
 
 void UCKS::extract_square_subblock(SharedMatrix A, SharedMatrix B, bool occupied, Dimension npi, double diagonal_shift)
 {

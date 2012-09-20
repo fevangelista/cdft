@@ -42,7 +42,7 @@ int read_options(std::string name, Options& options)
         particle orbitals while relaxing the other orbitals;
         ``CHP-F`` (frozen CHP) which is CHP without orbital relaxation.
         ``CHP-Fb`` (frozen beta CHP) which is CHP without beta orbital relaxation. Default is ``CHP``. -*/
-        options.add_str("CDFT_EXC_METHOD","CHP","CP CH CHP CHP-F CHP-FB");
+        options.add_str("CDFT_EXC_METHOD","CHP","CP CH CHP CHP-F CHP-FB CIS");
         /*- An array of dimension equal to then number of irreps that allows to select a given hole/particle excitation -*/
         options.add("CDFT_EXC_SELECT", new ArrayType());
         /*- An array of dimension equal to then number of irreps that allows to select an excitation with given symmetry-*/
