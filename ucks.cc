@@ -266,21 +266,20 @@ void UCKS::save_density_and_energy()
 void UCKS::form_G()
 {
     timer_on("Form V");
-//    form_V();
-    // Push the C matrix on
-    std::vector<SharedMatrix> & C = potential_->C();
-    C.clear();
-    C.push_back(Ca_subset("SO", "OCC"));
-    C.push_back(Cb_subset("SO", "OCC"));
+    form_V();
+//    // Push the C matrix on
+//    std::vector<SharedMatrix> & C = potential_->C();
+//    C.clear();
+//    C.push_back(Ca_subset("SO", "OCC"));
+//    C.push_back(Cb_subset("SO", "OCC"));
 
-    // Run the potential object
-    potential_->compute(Da_,Db_);
+//    // Run the potential object
+//    potential_->compute(Da_,Db_);
 
-    // Pull the V matrices off
-    const std::vector<SharedMatrix> & V = potential_->V();
-    Va_ = V[0];
-    Vb_ = V[1];
-
+//    // Pull the V matrices off
+//    const std::vector<SharedMatrix> & V = potential_->V();
+//    Va_ = V[0];
+//    Vb_ = V[1];
     timer_off("Form V");
 
     if (scf_type_ == "DF" || scf_type_ == "PS") {
