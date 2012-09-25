@@ -27,8 +27,10 @@ int read_options(std::string name, Options& options)
         options.add("ROOTS_PER_IRREP", new ArrayType());
         /*- Perform a correction of the triplet excitation energies -*/
         options.add_bool("TRIPLET_CORRECTION", true);
-        /*- Perform a correction of the triplet excitation energies -*/
-        options.add_bool("CDFT_SPIN_ADAPT", true);
+        /*- Perform a correction of the triplet excitation energies using the S+ formalism -*/
+        options.add_bool("CDFT_SPIN_ADAPT_SP", true);
+        /*- Perform a correction of the triplet excitation energies using a CI formalism -*/
+        options.add_bool("CDFT_SPIN_ADAPT_CI", false);
         /*- Select the way the charges are computed -*/
         options.add_str("CONSTRAINT_TYPE","LOWDIN", "LOWDIN");
         /*- Select the algorithm to optimize the constraints -*/

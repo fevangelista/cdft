@@ -1582,10 +1582,11 @@ void UCKS::save_information()
         double mixlet_exc_energy = E_ - ground_state_energy;
         fprintf(outfile,"  Excited mixed state   : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
                 mixlet_exc_energy,mixlet_exc_energy * _hartree2ev, mixlet_exc_energy * _hartree2wavenumbers);
-
-        if(KS::options_.get_bool("CDFT_SPIN_ADAPT")){
-            spin_adapt_mixed_excitation();
+        if(KS::options_.get_bool("CDFT_SPIN_ADAPT_SP")){
             compute_S_plus_triplet_correction();
+        }
+        if(KS::options_.get_bool("CDFT_SPIN_ADAPT_CI")){
+            spin_adapt_mixed_excitation();
         }
     }
     if(KS::options_.get_str("CDFT_EXC_METHOD") == "CIS")
@@ -1932,9 +1933,13 @@ double UCKS::compute_S_plus_triplet_correction()
     fprintf(outfile,"\n  Final occupation numbers:\n");
     nalphapi_[mo_h] += 1;
     nbetapi_[mo_h]  -= 1;
+    nalpha_ = 0;
+    nbeta_ = 0;
     for (int h = 0; h < nirrep_; ++h) {
         soccpi_[h] = std::abs(nalphapi_[h] - nbetapi_[h]);
         doccpi_[h] = std::min(nalphapi_[h] , nbetapi_[h]);
+        nalpha_ += nalphapi_[h];
+        nbeta_ += nalphapi_[h];
     }
     fprintf(outfile, "\tNA   [ ");
     for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nalphapi_[h]);
