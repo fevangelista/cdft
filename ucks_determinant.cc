@@ -141,7 +141,7 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
 
 //    boost::shared_ptr<JK> jk = JK::build_JK();
     if(num_alpha_nonc == 0 and num_beta_nonc == 0){
-        overlap =Stilde;
+        overlap = Stilde;
         // Build the W^BA alpha density matrix
         SharedMatrix W_BA_a = factory_->create_shared_matrix("W_BA_a");
         SharedMatrix W_BA_b = factory_->create_shared_matrix("W_BA_b");
@@ -261,36 +261,70 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
         fprintf(outfile,"  E2 = %20.12f\n", _hartree2ev * ((E_ - hamiltonian)/(1-overlap) - ground_state_energy) );
         fprintf(outfile,"  E1-E2 = %20.12f\n", _hartree2ev * ((E_ + hamiltonian)/(1+overlap) - (E_ - hamiltonian)/(1-overlap)));
 
+        C_left = jk_->C_left();
+        C_left.clear();
+        C_left.push_back(Ca_subset("SO", "OCC"));
+        C_left.push_back(Cb_subset("SO", "OCC"));
+        C_right = jk_->C_right();
+        C_right.clear();
+        jk_->compute();
 
-        SharedMatrix h_BA_a = SharedMatrix(new Matrix("h_BA_a",A->nalphapi(),B->nalphapi()));
-        h_BA_a->transform(BCa,H_copy,ACa);
-        double alpha_one_body2 = 0.0;
-        for (int h = 0; h < nirrep_; ++h){
-            int nocc = A->nalphapi()[h];  // NB in this case there cannot be symmetry noncoincidences
-            double** h_BA = h_BA_a->pointer(h);
-            double* s = s_a->pointer(h);
-            for (int i = 0; i < nocc; ++i){
-                alpha_one_body2 += h_BA[i][i] / s[i];
-            }
-        }
+        Ja = jk_->J()[0];
+        Jb = jk_->J()[1];
+        Ka = jk_->K()[0];
+        Kb = jk_->K()[1];
 
-        SharedMatrix h_BA_b = SharedMatrix(new Matrix("h_BA_b",A->nbetapi(),B->nbetapi()));
-        h_BA_b->transform(BCb,H_copy,ACb);
-        double beta_one_body2 = 0.0;
-        for (int h = 0; h < nirrep_; ++h){
-            int nocc = A->nbetapi()[h];  // NB in this case there cannot be symmetry noncoincidences
-            double** h_BA = h_BA_b->pointer(h);
-            double* s = s_b->pointer(h);
-            for (int i = 0; i < nocc; ++i){
-                beta_one_body2 += h_BA[i][i] / s[i];
-            }
-        }
-        double one_body2 = alpha_one_body2 + beta_one_body2;
-        double interaction2 = one_body2;
-        fprintf(outfile,"  Matrix element from libfock = %14.6f (Stilde) * %14.6f (int) = %20.12f\n", Stilde, interaction2, interaction2 * Stilde);
-        fprintf(outfile,"  W_a . h = %20.12f\n", alpha_one_body2);
-        fprintf(outfile,"  W_b . h = %20.12f\n", beta_one_body2);
-        fflush(outfile);
+        double one_electron_E = Da_->vector_dot(H_);
+        one_electron_E += Db_->vector_dot(H_);
+        J_->copy(Ja);
+        J_->add(Jb);
+        double coulomb_E = 0.5 * Da_->vector_dot(J_);
+        coulomb_E += 0.5 * Db_->vector_dot(J_);
+        double exchange_E = - Da_->vector_dot(Ka_);
+        exchange_E -= Db_->vector_dot(Kb_);
+        double two_electron_E = coulomb_E + exchange_E;
+
+        double E_HF_Phip = nuclearrep_ + one_electron_E + coulomb_E + 0.5 * exchange_E;
+        fprintf(outfile,"  nuclearrep_ = %20.12f\n",nuclearrep_);
+        fprintf(outfile,"  one_electron_E = %20.12f\n",one_electron_E);
+        fprintf(outfile,"  two_electron_E = %20.12f\n",two_electron_E);
+        fprintf(outfile,"  coulomb_E = %20.12f\n",coulomb_E);
+        fprintf(outfile,"  exchange_E = %20.12f\n",exchange_E);
+        fprintf(outfile,"  E_HF_Phi' = %20.12f\n",E_HF_Phip);
+
+        double perfected_coupling = Stilde * (E_ + interaction - E_HF_Phip);
+        fprintf(outfile,"  Matrix element from libfock = %14.6f (Stilde) * %14.6f (int) = %20.12f\n", Stilde, E_ + interaction - E_HF_Phip, perfected_coupling);
+        hamiltonian = perfected_coupling;
+
+//        SharedMatrix h_BA_a = SharedMatrix(new Matrix("h_BA_a",A->nalphapi(),B->nalphapi()));
+//        h_BA_a->transform(BCa,H_copy,ACa);
+//        double alpha_one_body2 = 0.0;
+//        for (int h = 0; h < nirrep_; ++h){
+//            int nocc = A->nalphapi()[h];  // NB in this case there cannot be symmetry noncoincidences
+//            double** h_BA = h_BA_a->pointer(h);
+//            double* s = s_a->pointer(h);
+//            for (int i = 0; i < nocc; ++i){
+//                alpha_one_body2 += h_BA[i][i] / s[i];
+//            }
+//        }
+
+//        SharedMatrix h_BA_b = SharedMatrix(new Matrix("h_BA_b",A->nbetapi(),B->nbetapi()));
+//        h_BA_b->transform(BCb,H_copy,ACb);
+//        double beta_one_body2 = 0.0;
+//        for (int h = 0; h < nirrep_; ++h){
+//            int nocc = A->nbetapi()[h];  // NB in this case there cannot be symmetry noncoincidences
+//            double** h_BA = h_BA_b->pointer(h);
+//            double* s = s_b->pointer(h);
+//            for (int i = 0; i < nocc; ++i){
+//                beta_one_body2 += h_BA[i][i] / s[i];
+//            }
+//        }
+//        double one_body2 = alpha_one_body2 + beta_one_body2;
+//        double interaction2 = one_body2;
+//        fprintf(outfile,"  Matrix element from libfock = %14.6f (Stilde) * %14.6f (int) = %20.12f\n", Stilde, interaction2, interaction2 * Stilde);
+//        fprintf(outfile,"  W_a . h = %20.12f\n", alpha_one_body2);
+//        fprintf(outfile,"  W_b . h = %20.12f\n", beta_one_body2);
+//        fflush(outfile);
 
 
 
