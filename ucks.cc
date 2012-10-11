@@ -265,6 +265,7 @@ void UCKS::save_density_and_energy()
 
 void UCKS::form_G()
 {
+
     timer_on("Form V");
     form_V();
 //    // Push the C matrix on
@@ -282,16 +283,17 @@ void UCKS::form_G()
 //    Vb_ = V[1];
     timer_off("Form V");
 
-    if (scf_type_ == "DF" || scf_type_ == "PS") {
+    timer_on("Form V");
+    form_V();
+    timer_off("Form V");
+
+    if (scf_type_ == "OUT_OF_CORE" || scf_type_ == "PK" || scf_type_ == "DF" || scf_type_ == "PS") {
 
         // Push the C matrix on
-        std::vector<SharedMatrix> & Cl = jk_->C_left();
-        Cl.clear();
-        Cl.push_back(Ca_subset("SO", "OCC"));
-        Cl.push_back(Cb_subset("SO", "OCC"));
-        // Clear the right vector if it was not done before
-        std::vector<SharedMatrix> & Cr = jk_->C_right();
-        Cr.clear();
+        std::vector<SharedMatrix> & C = jk_->C_left();
+        C.clear();
+        C.push_back(Ca_subset("SO", "OCC"));
+        C.push_back(Cb_subset("SO", "OCC"));
 
         // Run the JK object
         jk_->compute();
@@ -313,13 +315,12 @@ void UCKS::form_G()
         Ga_->copy(J_);
         Gb_->copy(J_);
 
-    } else {        
-//        throw FeatureNotImplemented("UCKS", "The CDFT code can only run with the option scf_type = df .", __FILE__, __LINE__);
-        fprintf(outfile,"\n  USing the non-JK algo\n");
+    } else {
         if (functional_->is_x_lrc()) {
             Omega_Ka_Kb_Functor k_builder(functional_->x_omega(),wKa_,wKb_,Da_,Db_,Ca_,Cb_,nalphapi_,nbetapi_);
             process_omega_tei<Omega_Ka_Kb_Functor>(k_builder);
         }
+
         // This will build J (stored in G) and K
         J_Ka_Kb_Functor jk_builder(Ga_, Ka_, Kb_, Da_, Db_, Ca_, Cb_, nalphapi_, nbetapi_);
         process_tei<J_Ka_Kb_Functor>(jk_builder);
@@ -451,6 +452,7 @@ void UCKS:: form_C()
         UKS::form_C();
     }else{
         // Excited state: use a special form_C
+//        form_C_ee();
         if(KS::options_.get_str("CDFT_EXC_METHOD") == "CH"){
             form_C_CH_algorithm();
         }else if(KS::options_.get_str("CDFT_EXC_METHOD") == "CP"){
@@ -460,6 +462,18 @@ void UCKS:: form_C()
                  KS::options_.get_str("CDFT_EXC_METHOD") == "CHP-FB"){
             form_C_CHP_algorithm();
         }
+    }
+    if(iteration_ == 8 and KS::options_["CDFT_BREAK_SYMMETRY"].has_changed()){
+        // Mix the alpha and beta homo
+        int np = KS::options_["CDFT_BREAK_SYMMETRY"][0].to_integer();
+        int nq = KS::options_["CDFT_BREAK_SYMMETRY"][1].to_integer();
+        double angle = KS::options_["CDFT_BREAK_SYMMETRY"][2].to_double();
+        fprintf(outfile,"\n  Mixing the alpha orbitals %d and %d by %f.1 degrees\n\n",np,nq,angle);
+        fflush(outfile);
+        Ca_->rotate_columns(0,np-1,nq-1,_pi * angle / 180.0);
+        Cb_->rotate_columns(0,np-1,nq-1,-_pi * angle / 180.0);
+        // Reset the DIIS subspace
+        diis_manager_->reset_subspace();
     }
 }
 
@@ -1591,6 +1605,10 @@ void UCKS::save_information()
     }
     if(KS::options_.get_str("CDFT_EXC_METHOD") == "CIS")
         cis_excitation_energy();
+    if(KS::options_["CDFT_BREAK_SYMMETRY"].has_changed()){
+        spin_adapt_mixed_excitation();
+        compute_S_plus_triplet_correction();
+    }
 }
 
 void UCKS::save_fock()
@@ -1627,6 +1645,8 @@ void UCKS::spin_adapt_mixed_excitation()
     std::pair<double,double> M12 = matrix_element(D1,D2);
     double S12 = M12.first;
     double H12 = M12.second;
+    double triplet_energy = (E_ - H12)/(1.0 - S12);
+    double singlet_energy = (E_ + H12)/(1.0 + S12);
     double triplet_exc_energy = (E_ - H12)/(1.0 - S12) - ground_state_energy;
     double singlet_exc_energy = (E_ + H12)/(1.0 + S12) - ground_state_energy;
     fprintf(outfile,"\n\n  H12  %d-%s = %15.9f\n",
@@ -1635,6 +1655,14 @@ void UCKS::spin_adapt_mixed_excitation()
     fprintf(outfile,"  S12  %d-%s = %15.9f\n\n",
             state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
             ct.gamma(excited_state_symmetry_).symbol(),S12);
+
+    fprintf(outfile,"\n  Triplet state energy (CI) %d-%s %20.9f Eh \n",
+            state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
+            ct.gamma(excited_state_symmetry_).symbol(),triplet_energy);
+
+    fprintf(outfile,"\n  Singlet state energy (CI) %d-%s %20.9f Eh \n",
+            state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
+            ct.gamma(excited_state_symmetry_).symbol(),singlet_energy);
 
     fprintf(outfile,"\n  Excited triplet state %d-%s : excitation energy (CI) = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
             state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
@@ -1931,6 +1959,7 @@ double UCKS::compute_S_plus_triplet_correction()
     int mo_h = sorted_pair[0].get<1>();
 
     fprintf(outfile,"\n  Final occupation numbers:\n");
+    // Update the occupation numbers
     nalphapi_[mo_h] += 1;
     nbetapi_[mo_h]  -= 1;
     nalpha_ = 0;
@@ -1956,6 +1985,15 @@ double UCKS::compute_S_plus_triplet_correction()
     // Compute the triplet energy from the density matrices
     double triplet_energy = compute_E();
     double triplet_exc_energy = triplet_energy - ground_state_energy;
+
+    fprintf(outfile,"\n  Triplet state energy (S+) %d-%s %20.9f Eh \n",
+            state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
+            ct.gamma(excited_state_symmetry_).symbol(),triplet_energy);
+
+    fprintf(outfile,"\n  Singlet state energy (S+) %d-%s %20.9f Eh \n",
+            state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
+            ct.gamma(excited_state_symmetry_).symbol(),2.0 * E_ - triplet_energy);
+
     fprintf(outfile,"\n  Excited triplet state %d-%s : excitation energy (S+) = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
             state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
             ct.gamma(excited_state_symmetry_).symbol(),
@@ -1969,6 +2007,21 @@ double UCKS::compute_S_plus_triplet_correction()
     fprintf(outfile,"\n\n");
     compute_spin_contamination();
     fprintf(outfile,"\n");
+
+    // Revert to the mixed state occupation numbers
+    nalphapi_[mo_h] -= 1;
+    nbetapi_[mo_h]  += 1;
+    nalpha_ = 0;
+    nbeta_ = 0;
+    for (int h = 0; h < nirrep_; ++h) {
+        soccpi_[h] = std::abs(nalphapi_[h] - nbetapi_[h]);
+        doccpi_[h] = std::min(nalphapi_[h] , nbetapi_[h]);
+        nalpha_ += nalphapi_[h];
+        nbeta_ += nalphapi_[h];
+    }
+    Ca_->copy(dets.back()->Ca());
+    Cb_->copy(dets.back()->Cb());
+    return singlet_exc_energy;
 }
 
 void UCKS::cis_excitation_energy()

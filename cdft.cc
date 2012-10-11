@@ -31,6 +31,8 @@ int read_options(std::string name, Options& options)
         options.add_bool("CDFT_SPIN_ADAPT_SP", true);
         /*- Perform a correction of the triplet excitation energies using a CI formalism -*/
         options.add_bool("CDFT_SPIN_ADAPT_CI", false);
+        /*- Break the symmetry of the HOMO/LUMO pair (works only in C1 symmetry) -*/
+        options.add("CDFT_BREAK_SYMMETRY", new ArrayType());
         /*- Select the way the charges are computed -*/
         options.add_str("CONSTRAINT_TYPE","LOWDIN", "LOWDIN");
         /*- Select the algorithm to optimize the constraints -*/

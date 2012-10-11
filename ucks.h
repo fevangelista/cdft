@@ -10,36 +10,6 @@ namespace psi{
 class Options;
 namespace scf{
 
-class ERIComputer
-{
-public:
-    ERIComputer(double* Ci,double* Cj,double* Ck,double* Cl) {
-        integral = 0.0;
-        Ci_ = Ci;
-        Cj_ = Cj;
-        Ck_ = Ck;
-        Cl_ = Cl;
-    }
-    bool k_required() const {return true;}
-    void initialize(){}
-    void finalize(){}
-    void operator()(boost::shared_ptr<PKIntegrals> pk_integrals) {}
-    void operator() (int pabs, int qabs, int rabs, int sabs,
-                     int pirrep, int pso,
-                     int qirrep, int qso,
-                     int rirrep, int rso,
-                     int sirrep, int sso,
-                     double value)
-    {
-        integral += value * Ci_[pabs] * Cj_[qabs] * Ck_[rabs] * Cl_[sabs];
-    }
-    double integral;
-    double* Ci_;
-    double* Cj_;
-    double* Ck_;
-    double* Cl_;
-};
-
 /// A class for unrestricted constrained Kohn-Sham theory
 class UCKS : public UKS {
 public:
