@@ -51,8 +51,8 @@ int read_options(std::string name, Options& options)
         options.add("CDFT_EXC_SELECT", new ArrayType());
         /*- An array of dimension equal to then number of irreps that allows to select an excitation with given symmetry-*/
         options.add("CDFT_EXC_HOLE_SYMMETRY", new ArrayType());
-        /*- Select the excited hole to target -*/
-        options.add_str("CDFT_EXC_HOLE","VALENCE","VALENCE CORE");
+        /*- Select the type of excited state to target -*/
+        options.add_str("CDFT_EXC_TYPE","VALENCE","VALENCE CORE IP EA");
         /*- The threshold for the gradient of the constraint -*/
         options.add_double("W_CONVERGENCE",1.0e-5);
         /*- The Lagrange multiplier for the SUHF formalism -*/
@@ -127,12 +127,15 @@ PsiReturnType cdft(Options& options)
                                      "Please specify a correct number of irreps in ROOTS_PER_IRREP", __FILE__, __LINE__);
             }
             for (int h = 0; h < nirrep; ++h){
-                int nstates = options["ROOTS_PER_IRREP"][h].to_integer();
+                int nstates = options["ROOTS_PER_IRREP"][h].to_integer();                
                 if (nstates > 0){
                     fprintf(outfile,"\n\n  ==== Computing %d state%s of symmetry %d ====\n",nstates,nstates > 1 ? "s" : "",h);
                 }
+                int hole_num =  0;
+                int part_num = -1;
                 for (int state = 1; state <= nstates; ++state){
-                    boost::shared_ptr<Wavefunction> new_scf = boost::shared_ptr<Wavefunction>(new scf::UCKS(options,psio,ref_scf,state,h));
+                    part_num += 1;
+                    boost::shared_ptr<Wavefunction> new_scf = boost::shared_ptr<Wavefunction>(new scf::UCKS(options,psio,ref_scf,state,h,hole_num,part_num));
                     Process::environment.wavefunction().reset();
                     Process::environment.set_wavefunction(new_scf);
                     double new_energy = new_scf->compute_energy();
@@ -143,6 +146,10 @@ PsiReturnType cdft(Options& options)
                     }
                     energies.push_back(new_energy);
                     ref_scf = new_scf;
+                    if (part_num > hole_num){
+                       hole_num = part_num;
+                       part_num = -1;
+                    }
                 }
             }
         }
