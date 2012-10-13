@@ -208,8 +208,8 @@ void UCKS::guess()
         iteration_ = 0;
         form_initial_C();
         //find_occupation();
-        Ca_ = dets[0]->Ca();
-        Cb_ = dets[0]->Cb();
+//        Ca_ = dets[0]->Ca();
+//        Cb_ = dets[0]->Cb();
         form_D();
         E_ = compute_initial_E();
     }else{
@@ -310,6 +310,10 @@ void UCKS::form_G()
         C.clear();
         C.push_back(Ca_subset("SO", "OCC"));
         C.push_back(Cb_subset("SO", "OCC"));
+
+        // Addition to standard call, make sure that C_right is not set
+        std::vector<SharedMatrix> & C_right = jk_->C_right();
+        C_right.clear();
 
         // Run the JK object
         jk_->compute();
@@ -490,7 +494,7 @@ void UCKS::form_C_ee()
     // Find the hole/particle pair to follow
     find_ee_occupation(lambda_a_o_,lambda_a_v_);
 
-    // Add holes/particles to the Ch and Cp matrices
+    // Build the Ch and Cp matrices
     compute_hole_particle_mos();
 
     // Form and diagonalize the Fock matrix for the spectator orbitals
@@ -531,6 +535,7 @@ void UCKS::compute_holes()
 
     // Diagonalize the occ block
     PoFaPo_->diagonalize(Ua_o_,lambda_a_o_);
+    lambda_a_o_->print();  // TEST
 }
 
 void UCKS::compute_particles()
@@ -555,6 +560,7 @@ void UCKS::compute_particles()
 
     // Diagonalize the vir block
     PvFaPv_->diagonalize(Ua_v_,lambda_a_v_);
+    lambda_a_v_->print();  // TEST
 }
 
 void UCKS::find_ee_occupation(SharedVector lambda_o,SharedVector lambda_v)
@@ -677,11 +683,11 @@ void UCKS::compute_hole_particle_mos()
         int nhole = naholepi_[hole_h] - 1;
         int maxi = gs_nalphapi_[hole_h];
         for (int p = 0; p < nsopi_[hole_h]; ++p){
-            double c_p = 0.0;
+            double c_h = 0.0;
             for (int i = 0; i < maxi; ++i){
-                c_p += Ca0->get(hole_h,p,i) * Ua_o_->get(hole_h,i,hole_mo) ;
+                c_h += Ca0->get(hole_h,p,i) * Ua_o_->get(hole_h,i,hole_mo) ;
             }
-            Ch_->set(hole_h,p,nhole,c_p);
+            Ch_->set(hole_h,p,nhole,c_h);
         }
     }
 
@@ -695,8 +701,6 @@ void UCKS::compute_hole_particle_mos()
         }
         Cp_->set(part_h,p,npart,c_p);
     }
-//    Cp_->print();
-//    Ch_->print();
 }
 
 void UCKS::diagonalize_F_spectator_relaxed()
