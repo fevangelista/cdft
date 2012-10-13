@@ -535,7 +535,6 @@ void UCKS::compute_holes()
 
     // Diagonalize the occ block
     PoFaPo_->diagonalize(Ua_o_,lambda_a_o_);
-    lambda_a_o_->print();  // TEST
 }
 
 void UCKS::compute_particles()
@@ -560,7 +559,6 @@ void UCKS::compute_particles()
 
     // Diagonalize the vir block
     PvFaPv_->diagonalize(Ua_v_,lambda_a_v_);
-    lambda_a_v_->print();  // TEST
 }
 
 void UCKS::find_ee_occupation(SharedVector lambda_o,SharedVector lambda_v)
