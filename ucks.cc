@@ -15,6 +15,12 @@
 #include <libscf_solver/integralfunctors.h>
 #include <libscf_solver/omegafunctors.h>
 
+#define DEBUG_THIS2(EXP) \
+    fprintf(outfile,"\n  Starting " #EXP " ..."); fflush(outfile); \
+    EXP \
+    fprintf(outfile,"  done."); fflush(outfile); \
+
+
 using namespace psi;
 
 namespace psi{ namespace scf{
@@ -281,30 +287,11 @@ void UCKS::save_density_and_energy()
 
 void UCKS::form_G()
 {
-
-    timer_on("Form V");
-    form_V();
-//    // Push the C matrix on
-//    std::vector<SharedMatrix> & C = potential_->C();
-//    C.clear();
-//    C.push_back(Ca_subset("SO", "OCC"));
-//    C.push_back(Cb_subset("SO", "OCC"));
-
-//    // Run the potential object
-//    potential_->compute(Da_,Db_);
-
-//    // Pull the V matrices off
-//    const std::vector<SharedMatrix> & V = potential_->V();
-//    Va_ = V[0];
-//    Vb_ = V[1];
-    timer_off("Form V");
-
     timer_on("Form V");
     form_V();
     timer_off("Form V");
 
     if (scf_type_ == "OUT_OF_CORE" || scf_type_ == "PK" || scf_type_ == "DF" || scf_type_ == "PS") {
-
         // Push the C matrix on
         std::vector<SharedMatrix> & C = jk_->C_left();
         C.clear();
@@ -666,8 +653,8 @@ void UCKS::find_ee_occupation(SharedVector lambda_o,SharedVector lambda_v)
             "%4d%-3s (%9.3f) -> %4d%-3s (%9.3f)\n",
             hole_mo + 1,ct.gamma(hole_h).symbol(),hole_energy,
             gs_nalphapi_[part_h] + part_mo + 1,ct.gamma(part_h).symbol(),part_energy);
-    naholepi_.print();
-    napartpi_.print();
+//    naholepi_.print();
+//    napartpi_.print();
 }
 
 void UCKS::compute_hole_particle_mos()
@@ -757,6 +744,8 @@ void UCKS::sort_ee_mos()
     for (int h = 0; h < nirrep_; ++h){
         int nso = nsopi_[h];
         int nmo = nmopi_[h];
+        if (nso == 0 or nmo == 0)
+            continue;
         double** T_h = TempMatrix->pointer(h);
         double** C_h = Ca_->pointer(h);
         double** Cp_h = Cp_->pointer(h);
@@ -1699,6 +1688,7 @@ double UCKS::compute_S_plus_triplet_correction()
     fprintf(outfile, " %4d ]\n", nbetapi_[nirrep_-1]);
 
     // Compute the density matrices with the new occupation
+
     form_D();
     form_G();
     form_F();
