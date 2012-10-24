@@ -43,10 +43,6 @@ protected:
     /// Determinant information for each electronic state
     std::vector<SharedDeterminant> dets;
 
-    /// The Fock matrix projected onto the occupied space
-    SharedMatrix PoFaPo_;
-    /// The Fock matrix projected onto the virtual space
-    SharedMatrix PvFaPv_;
     /// The Fock matrix projected onto the spectator space
     SharedMatrix QFQ_;
     /// The holes
@@ -61,6 +57,10 @@ protected:
     SharedMatrix moFeffa_;
     /// The effective beta Fock matrix in the MO basis
     SharedMatrix moFeffb_;
+    /// The Fock matrix projected onto the occupied space
+    SharedMatrix PoFaPo_;
+    /// The Fock matrix projected onto the virtual space
+    SharedMatrix PvFaPv_;
     /// The eigenvectors of PoFPo
     SharedMatrix Ua_o_;
     /// The eigenvectors of PvFPv
@@ -69,6 +69,19 @@ protected:
     SharedVector lambda_a_o_;
     /// The eigenvalues of PvFPv
     SharedVector lambda_a_v_;
+    /// The Fock matrix projected onto the occupied space
+    SharedMatrix PoFbPo_;
+    /// The Fock matrix projected onto the virtual space
+    SharedMatrix PvFbPv_;
+    /// The eigenvectors of PoFPo
+    SharedMatrix Ub_o_;
+    /// The eigenvectors of PvFPv
+    SharedMatrix Ub_v_;
+    /// The eigenvalues of PoFPo
+    SharedVector lambda_b_o_;
+    /// The eigenvalues of PvFPv
+    SharedVector lambda_b_v_;
+
     /// The irrep of the hole
     int hole_h;
     /// The hole index
@@ -189,6 +202,8 @@ protected:
     void cis_excitation_energy();
     /// Compute the corresponding orbitals for a pair of MO sets
     boost::tuple<SharedMatrix,SharedMatrix,SharedVector,double> corresponding_orbitals(SharedMatrix A, SharedMatrix B, Dimension dima, Dimension dimb);
+    /// Form_C for the beta MOs
+    void form_C_beta();
 
     // Helper functions
     /// Extract a block from matrix A and copies it to B

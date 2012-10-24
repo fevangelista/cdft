@@ -52,7 +52,9 @@ UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<Wav
   ground_state_energy(0.0),
   ground_state_symmetry_(0),
   excited_state_symmetry_(0),
-  state_(state)
+  state_(state),
+  hole_num_(0),
+  part_num_(0)
 {
     init();
     init_excitation(ref_scf);
@@ -83,7 +85,11 @@ void UCKS::init()
 {
     fprintf(outfile,"\n  ==> Constrained DFT (UCKS) <==\n\n");
 
-    optimize_Vc = KS::options_.get_bool("OPTIMIZE_VC");
+
+    optimize_Vc = false;
+    if(KS::options_["CHARGE"].size() > 0 or KS::options_["SPIN"].size() > 0){
+        KS::options_.get_bool("OPTIMIZE_VC");
+    }
     gradW_threshold_ = KS::options_.get_double("W_CONVERGENCE");
     fprintf(outfile,"  gradW threshold = :%9.2e\n",gradW_threshold_);
     nfrag = basisset()->molecule()->nfragments();
@@ -454,21 +460,21 @@ void UCKS::form_C()
     if(not do_excitation){
         // Ground state: use the default form_C
         UKS::form_C();
+        if(iteration_ == 4 and KS::options_["CDFT_BREAK_SYMMETRY"].has_changed()){
+            // Mix the alpha and beta homo
+            int np = KS::options_["CDFT_BREAK_SYMMETRY"][0].to_integer();
+            int nq = KS::options_["CDFT_BREAK_SYMMETRY"][1].to_integer();
+            double angle = KS::options_["CDFT_BREAK_SYMMETRY"][2].to_double();
+            fprintf(outfile,"\n  Mixing the alpha orbitals %d and %d by %f.1 degrees\n\n",np,nq,angle);
+            fflush(outfile);
+            Ca_->rotate_columns(0,np-1,nq-1,_pi * angle / 180.0);
+            Cb_->rotate_columns(0,np-1,nq-1,-_pi * angle / 180.0);
+            // Reset the DIIS subspace
+            diis_manager_->reset_subspace();
+        }
     }else{
         // Excited state: use a special form_C
         form_C_ee();
-    }
-    if(iteration_ == 8 and KS::options_["CDFT_BREAK_SYMMETRY"].has_changed()){
-        // Mix the alpha and beta homo
-        int np = KS::options_["CDFT_BREAK_SYMMETRY"][0].to_integer();
-        int nq = KS::options_["CDFT_BREAK_SYMMETRY"][1].to_integer();
-        double angle = KS::options_["CDFT_BREAK_SYMMETRY"][2].to_double();
-        fprintf(outfile,"\n  Mixing the alpha orbitals %d and %d by %f.1 degrees\n\n",np,nq,angle);
-        fflush(outfile);
-        Ca_->rotate_columns(0,np-1,nq-1,_pi * angle / 180.0);
-        Cb_->rotate_columns(0,np-1,nq-1,-_pi * angle / 180.0);
-        // Reset the DIIS subspace
-        diis_manager_->reset_subspace();
     }
 }
 
@@ -495,7 +501,7 @@ void UCKS::form_C_ee()
     sort_ee_mos();
 
     // Beta always fully relaxed
-    diagonalize_F(Fb_, Cb_, epsilon_b_);
+    form_C_beta();
 }
 
 void UCKS::compute_holes()
@@ -988,6 +994,49 @@ void UCKS::diagonalize_F_spectator_unrelaxed()
 //    }
 }
 
+
+void UCKS::form_C_beta()
+{
+    // BETA
+    if(KS::options_.get_str("CDFT_EXC_METHOD") != "CHP-FB"){
+        diagonalize_F(Fb_, Cb_, epsilon_b_);
+    }else{
+        fprintf(outfile,"\n  Frozen beta algorithm\n");
+        if(! PoFbPo_){
+            PoFbPo_ = SharedMatrix(new Matrix("PoFbPo",gs_nbetapi_,gs_nbetapi_));
+            PvFbPv_ = SharedMatrix(new Matrix("PvFbPo",gs_nbvirpi_,gs_nbvirpi_));
+            Ub_o_ = SharedMatrix(new Matrix("Ub_o_",gs_nbetapi_,gs_nbetapi_));
+            Ub_v_ = SharedMatrix(new Matrix("Ub_v_",gs_nbvirpi_,gs_nbvirpi_));
+            lambda_b_o_ = SharedVector(new Vector("lambda_b_o_",gs_nbetapi_));
+            lambda_b_v_ = SharedVector(new Vector("lambda_b_v_",gs_nbvirpi_));
+            fprintf(outfile,"\n  Allocated beta matrices!!!\n");
+        }
+
+        // Unrelaxed procedure, but still find MOs which diagonalize the occupied block
+        // Transform Fb to the MO basis of the ground state
+        TempMatrix->transform(Fb_,dets[0]->Cb());
+
+        // Grab the occ block of Fb
+        copy_block(TempMatrix,1.0,PoFbPo_,0.0,gs_nbetapi_,gs_nbetapi_);
+
+        // Diagonalize the occ block
+        PoFbPo_->diagonalize(Ub_o_,lambda_b_o_);
+
+        // Grab the vir block of Fb
+        copy_block(TempMatrix,1.0,PvFbPv_,0.0,gs_nbvirpi_,gs_nbvirpi_,gs_nbetapi_,gs_nbetapi_);
+
+        // Diagonalize the vir block
+        PvFbPv_->diagonalize(Ub_v_,lambda_b_v_);
+
+        TempMatrix->zero();
+        copy_block(Ub_o_,1.0,TempMatrix,0.0,gs_nbetapi_,gs_nbetapi_);
+        copy_block(Ub_v_,1.0,TempMatrix,0.0,gs_nbvirpi_,gs_nbvirpi_,Dimension(nirrep_),Dimension(nirrep_),gs_nbetapi_,gs_nbetapi_);
+
+        // Get the excited state orbitals: Cb(ex) = Cb(gs) * (Uo | Uv)
+        Cb_->gemm(false,false,1.0,dets[0]->Cb(),TempMatrix,0.0);
+    }
+}
+
 /// Gradient of W
 ///
 /// Implements Eq. (6) of Phys. Rev. A 72, 024502 (2005) and estimates a correction to the
@@ -1315,10 +1364,10 @@ void UCKS::save_information()
     }
     if(KS::options_.get_str("CDFT_EXC_METHOD") == "CIS")
         cis_excitation_energy();
-    if(KS::options_["CDFT_BREAK_SYMMETRY"].has_changed()){
-        spin_adapt_mixed_excitation();
-        compute_S_plus_triplet_correction();
-    }
+//    if(KS::options_["CDFT_BREAK_SYMMETRY"].has_changed()){
+//        spin_adapt_mixed_excitation();
+//        compute_S_plus_triplet_correction();
+//    }
 }
 
 void UCKS::save_fock()
