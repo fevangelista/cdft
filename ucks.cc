@@ -124,6 +124,8 @@ void UCKS::init()
         }
     }
 
+    zero_dim_ = Dimension(nirrep_);
+
     nconstraints = static_cast<int>(constraints.size());
 
     // Allocate vectors
@@ -163,6 +165,21 @@ void UCKS::init_excitation(boost::shared_ptr<Wavefunction> ref_scf)
     // Never recalculate the socc and docc arrays
     input_socc_ = true;
     input_docc_ = true;
+
+    // Default: CHP algorithm
+    do_holes = true;
+    do_parts = true;
+    do_opt_spectators = true;
+
+    std::string exc_method = KS::options_.get_str("CDFT_EXC_METHOD");
+    if(exc_method == "CHP-F"){
+        do_opt_spectators = false;
+    }else if(exc_method == "CH"){
+        do_parts = false;
+    }else if(exc_method == "CP"){
+        do_holes = false;
+    }
+
 
     // Save the reference state MOs and occupation numbers
     fprintf(outfile,"  Saving the reference orbitals for an excited state computation\n");
@@ -424,8 +441,12 @@ void UCKS::form_F()
     if(do_excitation){
         // Form the projector onto the orbitals orthogonal to the holes and particles in the excited state mo representation
         TempMatrix->zero();
-        TempMatrix->gemm(false,true,1.0,Ch_,Ch_,0.0);
-        TempMatrix->gemm(false,true,1.0,Cp_,Cp_,1.0);
+        if(do_holes){
+            TempMatrix->gemm(false,true,1.0,Ch_,Ch_,1.0);
+        }
+        if(do_parts){
+            TempMatrix->gemm(false,true,1.0,Cp_,Cp_,1.0);
+        }
         TempMatrix->transform(S_);
         TempMatrix->transform(Ca_);
         TempMatrix2->identity();
@@ -491,7 +512,7 @@ void UCKS::form_C_ee()
     compute_hole_particle_mos();
 
     // Form and diagonalize the Fock matrix for the spectator orbitals
-    if(KS::options_.get_str("CDFT_EXC_METHOD") != "CHP-F"){
+    if(do_opt_spectators){
         diagonalize_F_spectator_relaxed();
     }else{
         diagonalize_F_spectator_unrelaxed();
@@ -506,15 +527,28 @@ void UCKS::form_C_ee()
 
 void UCKS::compute_holes()
 {
-    std::string exc_method = KS::options_.get_str("CDFT_EXC_METHOD");
+    if(iteration_ > 1){
+        // Form the projector Ca Ca^T S Ca_gs
+        TempMatrix->zero();
+        // Copy the occupied block of Ca
+        copy_block(Ca_,1.0,TempMatrix,0.0,nsopi_,nalphapi_);
+        // Copy Ch
+        copy_block(Ch_,1.0,TempMatrix,0.0,nsopi_,naholepi_,zero_dim_,zero_dim_,zero_dim_,nalphapi_);
 
-    // Transform Fa to the MO basis of the ground state
-    TempMatrix->transform(Fa_,dets[0]->Ca());
+        TempMatrix2->gemm(false,true,1.0,TempMatrix,TempMatrix,0.0);
+        TempMatrix->gemm(false,false,1.0,TempMatrix2,S_,0.0);
+        TempMatrix2->gemm(false,false,1.0,TempMatrix,dets[0]->Ca(),0.0);
+
+        TempMatrix->transform(Fa_,TempMatrix2);
+    }else{
+        // Transform Fa to the MO basis of the ground state
+        TempMatrix->transform(Fa_,dets[0]->Ca());
+    }
 
     // Grab the occ block of Fa
     copy_block(TempMatrix,1.0,PoFaPo_,0.0,gs_nalphapi_,gs_nalphapi_);
 
-    // Form the projector Ph = 1 - (Ca S Ch)^T Ch S Ca
+    // Form the projector Ph = 1 - (Ch S Ca)^T Ch S Ca
     TempMatrix->zero();
     TempMatrix->gemm(false,true,1.0,saved_Ch_,saved_Ch_,0.0);
     TempMatrix->transform(S_);
@@ -532,8 +566,23 @@ void UCKS::compute_holes()
 
 void UCKS::compute_particles()
 {
-    // Transform Fa to the MO basis of the ground state
-    TempMatrix->transform(Fa_,dets[0]->Ca());
+    if(iteration_ > 1){
+        // Form the projector Ca Ca^T S Ca_gs
+        TempMatrix->zero();
+        // Copy Cp
+        copy_block(Cp_,1.0,TempMatrix,0.0,nsopi_,napartpi_);
+        // Copy the virtual block of Ca
+        copy_block(Ca_,1.0,TempMatrix,0.0,nsopi_,nmopi_ - nalphapi_,zero_dim_,nalphapi_,zero_dim_,napartpi_);
+
+        TempMatrix2->gemm(false,true,1.0,TempMatrix,TempMatrix,0.0);
+        TempMatrix->gemm(false,false,1.0,TempMatrix2,S_,0.0);
+        TempMatrix2->gemm(false,false,1.0,TempMatrix,dets[0]->Ca(),0.0);
+
+        TempMatrix->transform(Fa_,TempMatrix2);
+    }else{
+        // Transform Fa to the MO basis of the ground state
+        TempMatrix->transform(Fa_,dets[0]->Ca());
+    }
 
     // Grab the vir block of Fa
     copy_block(TempMatrix,1.0,PvFaPv_,0.0,gs_navirpi_,gs_navirpi_,gs_nalphapi_,gs_nalphapi_);
@@ -632,65 +681,107 @@ void UCKS::find_ee_occupation(SharedVector lambda_o,SharedVector lambda_v)
                 fprintf(outfile, "\n  Following excitation #%d:\n",select_pair + 1);
             }
         }
-        hole_h = sorted_hp_pairs[select_pair].get<1>();
-        hole_mo = sorted_hp_pairs[select_pair].get<2>();
-        part_h = sorted_hp_pairs[select_pair].get<4>();
-        part_mo = sorted_hp_pairs[select_pair].get<5>();
+        aholes.clear();
+        aparts.clear();
+
+        int ahole_h = sorted_hp_pairs[select_pair].get<1>();
+        int ahole_mo = sorted_hp_pairs[select_pair].get<2>();
+        double ahole_energy = sorted_hp_pairs[select_pair].get<3>();
+        boost::tuple<int,int,double> ahole = boost::make_tuple(ahole_h,ahole_mo,ahole_energy);
+        aholes.push_back(ahole);
+
+        int apart_h = sorted_hp_pairs[select_pair].get<4>();
+        int apart_mo = sorted_hp_pairs[select_pair].get<5>();
+        double apart_energy = sorted_hp_pairs[select_pair].get<6>();
+        boost::tuple<int,int,double> apart = boost::make_tuple(apart_h,apart_mo,apart_energy);
+        aparts.push_back(apart);
     }else{
         if(not (KS::options_["CDFT_EXC_SELECT"].has_changed() or
                 KS::options_["CDFT_EXC_HOLE_SYMMETRY"].has_changed())){
-            hole_h = sorted_hp_pairs[0].get<1>();
-            hole_mo = sorted_hp_pairs[0].get<2>();
-            part_h = sorted_hp_pairs[0].get<4>();
-            part_mo = sorted_hp_pairs[0].get<5>();
+            aholes.clear();
+            aparts.clear();
+
+            int ahole_h = sorted_hp_pairs[0].get<1>();
+            int ahole_mo = sorted_hp_pairs[0].get<2>();
+            double ahole_energy = sorted_hp_pairs[0].get<3>();
+            boost::tuple<int,int,double> ahole = boost::make_tuple(ahole_h,ahole_mo,ahole_energy);
+            aholes.push_back(ahole);
+
+            int apart_h = sorted_hp_pairs[0].get<4>();
+            int apart_mo = sorted_hp_pairs[0].get<5>();
+            double apart_energy = sorted_hp_pairs[0].get<6>();
+            boost::tuple<int,int,double> apart = boost::make_tuple(apart_h,apart_mo,apart_energy);
+            aparts.push_back(apart);
         }
     }
     fflush(outfile);
 
-    hole_energy = lambda_o->get(hole_h,hole_mo);
-    part_energy = lambda_v->get(part_h,part_mo);
-
-    naholepi_ = saved_naholepi_;
-    naholepi_[hole_h] += 1;
+    naholepi_ = saved_naholepi_;    
     napartpi_ = saved_napartpi_;
-    napartpi_[part_h] += 1;
 
-    fprintf(outfile,"                     "
-            "%4d%-3s (%9.3f) -> %4d%-3s (%9.3f)\n",
-            hole_mo + 1,ct.gamma(hole_h).symbol(),hole_energy,
-            gs_nalphapi_[part_h] + part_mo + 1,ct.gamma(part_h).symbol(),part_energy);
-//    naholepi_.print();
-//    napartpi_.print();
+    // Compute the number of hole and/or particle orbitals to compute
+    fprintf(outfile,"\n  HOLES:     ");
+    size_t naholes = aholes.size();
+    for (size_t n = 0; n < naholes; ++n){
+        naholepi_[aholes[n].get<0>()] += 1;
+        fprintf(outfile,"%4d%-3s (%+.6f)",
+                aholes[n].get<1>() + 1,
+                ct.gamma(aholes[n].get<0>()).symbol(),
+                aholes[n].get<2>());
+    }
+    fprintf(outfile,"\n  PARTICLES: ");
+    size_t naparts = aparts.size();
+    for (size_t n = 0; n < naparts; ++n){
+        napartpi_[aparts[n].get<0>()] += 1;
+        fprintf(outfile,"%4d%-3s (%+.6f)",
+                gs_nalphapi_[aparts[n].get<0>()] + aparts[n].get<1>() + 1,
+                ct.gamma(aparts[n].get<0>()).symbol(),
+                aparts[n].get<2>());
+    }
+    fprintf(outfile,"\n\n");
 }
 
 void UCKS::compute_hole_particle_mos()
 {
     SharedMatrix Ca0 = dets[0]->Ca();
 
-    Ch_->copy(saved_Ch_);
-    Cp_->copy(saved_Cp_);
-    // Compute the hole orbital
-    if (hole_num_ == 0){
-        int nhole = naholepi_[hole_h] - 1;
-        int maxi = gs_nalphapi_[hole_h];
-        for (int p = 0; p < nsopi_[hole_h]; ++p){
+    Ch_->copy(saved_Ch_);  // WRONG
+    Cp_->copy(saved_Cp_);  // WRONG
+
+    // Compute the hole orbitals
+    size_t naholes = aholes.size();
+    std::vector<int> hoffset(nirrep_,0);
+    for (size_t n = 0; n < naholes; ++n){
+        int ahole_h = aholes[n].get<0>();
+        int ahole_mo = aholes[n].get<1>();
+        int nhole = hoffset[ahole_h];
+        int maxi = gs_nalphapi_[ahole_h];
+        for (int p = 0; p < nsopi_[ahole_h]; ++p){
             double c_h = 0.0;
             for (int i = 0; i < maxi; ++i){
-                c_h += Ca0->get(hole_h,p,i) * Ua_o_->get(hole_h,i,hole_mo) ;
+                c_h += Ca0->get(ahole_h,p,i) * Ua_o_->get(ahole_h,i,ahole_mo);
             }
-            Ch_->set(hole_h,p,nhole,c_h);
+            Ch_->set(ahole_h,p,nhole,c_h);
         }
+        hoffset[ahole_h] += 1;
     }
 
     // Compute the particle orbital
-    int npart = napartpi_[part_h] - 1;
-    int maxa = gs_navirpi_[part_h];
-    for (int p = 0; p < nsopi_[part_h]; ++p){
-        double c_p = 0.0;
-        for (int a = 0; a < maxa; ++a){
-            c_p += Ca0->get(part_h,p,gs_nalphapi_[part_h] + a) * Ua_v_->get(part_h,a,part_mo) ;
+    size_t naparts = aparts.size();
+    std::vector<int> poffset(nirrep_,0);
+    for (size_t n = 0; n < naparts; ++n){
+        int apart_h = aparts[n].get<0>();
+        int apart_mo = aparts[n].get<1>();
+        int npart = poffset[apart_h];
+        int maxa = gs_navirpi_[apart_h];
+        for (int p = 0; p < nsopi_[apart_h]; ++p){
+            double c_p = 0.0;
+            for (int a = 0; a < maxa; ++a){
+                c_p += Ca0->get(apart_h,p,gs_nalphapi_[apart_h] + a) * Ua_v_->get(apart_h,a,apart_mo) ;
+            }
+            Cp_->set(apart_h,p,npart,c_p);
         }
-        Cp_->set(part_h,p,npart,c_p);
+        poffset[apart_h] += 1;
     }
 }
 
@@ -698,8 +789,13 @@ void UCKS::diagonalize_F_spectator_relaxed()
 {
     // Form the projector onto the orbitals orthogonal to the holes and particles in the excited state mo representation
     TempMatrix->zero();
-    TempMatrix->gemm(false,true,1.0,Ch_,Ch_,0.0);
-    TempMatrix->gemm(false,true,1.0,Cp_,Cp_,1.0);
+    // Project the hole, the particles, or both depending on the method
+    if(do_holes){
+        TempMatrix->gemm(false,true,1.0,Ch_,Ch_,1.0);
+    }
+    if(do_parts){
+        TempMatrix->gemm(false,true,1.0,Cp_,Cp_,1.0);
+    }
     TempMatrix->transform(S_);
     TempMatrix->transform(dets[0]->Ca());
     TempMatrix2->identity();
@@ -756,13 +852,15 @@ void UCKS::sort_ee_mos()
         double** C_h = Ca_->pointer(h);
         double** Cp_h = Cp_->pointer(h);
         double** Ch_h = Ch_->pointer(h);
-        // First place the particles
         int m = 0;
-        for (int p = 0; p < napartpi_[h]; ++p){
-            for (int q = 0; q < nso; ++q){
-                T_h[q][m] = Cp_h[q][p];
+        // First place the particles
+        if(do_parts){
+            for (int p = 0; p < napartpi_[h]; ++p){
+                for (int q = 0; q < nso; ++q){
+                    T_h[q][m] = Cp_h[q][p];
+                }
+                m += 1;
             }
-            m += 1;
         }
         // Then the spectators
         for (int p = 0; p < nmo; ++p){
@@ -776,11 +874,13 @@ void UCKS::sort_ee_mos()
             }
         }
         // Then the holes
-        for (int p = 0; p < naholepi_[h]; ++p){
-            for (int q = 0; q < nso; ++q){
-                T_h[q][m] = Ch_h[q][p];
+        if(do_holes){
+            for (int p = 0; p < naholepi_[h]; ++p){
+                for (int q = 0; q < nso; ++q){
+                    T_h[q][m] = Ch_h[q][p];
+                }
+                m += 1;
             }
-            m += 1;
         }
     }
     Ca_->copy(TempMatrix);
@@ -1787,213 +1887,213 @@ double UCKS::compute_S_plus_triplet_correction()
 void UCKS::cis_excitation_energy()
 {
 
-    CharacterTable ct = KS::molecule_->point_group()->char_table();
+//    CharacterTable ct = KS::molecule_->point_group()->char_table();
 
-    int symmetry = 0;
-    SharedMatrix ra = SharedMatrix(new Matrix("r Amplitudes",nmopi_,nmopi_,symmetry));
-    SharedMatrix rb = SharedMatrix(new Matrix("r Amplitudes",nmopi_,nmopi_,symmetry));
-    SharedMatrix genDa = factory_->create_shared_matrix("genDa");
-    SharedMatrix genDb = factory_->create_shared_matrix("genDb");
-    // Determine the hole/particle pair to follow
-    // Compute the symmetry adapted hole/particle pairs
-    std::vector<boost::tuple<double,int,int,double,int,int,double> > sorted_hp_pairs;
-    for (int h = 0; h < nirrep_; ++h){
-        int h_i = h;
-        int h_a = h ^ symmetry;
-        int nocc_i = nalphapi_[h_i];
-        int nocc_a = nalphapi_[h_a];
-        int nvir_a = nmopi_[h_a] - nalphapi_[h_a];
-        for (int i = 0; i < nocc_i; ++i){
-            for (int a = 0; a < nvir_a; ++a){
-                double e_i = epsilon_a_->get(h_i,i);
-                double e_a = epsilon_a_->get(h_a,a + nocc_a);
-                double delta_ai = e_a - e_i;
-                sorted_hp_pairs.push_back(boost::make_tuple(delta_ai,h_i,i,e_i,h_a,a + nocc_a,e_a));
-            }
-        }
-    }
-
-    std::sort(sorted_hp_pairs.begin(),sorted_hp_pairs.end());
-//    if(iteration_ == 0){
-    fprintf(outfile, "\n  Ground state symmetry: %s\n",ct.gamma(ground_state_symmetry_).symbol());
-    fprintf(outfile, "  Excited state symmetry: %s\n",ct.gamma(excited_state_symmetry_).symbol());
-    fprintf(outfile, "\n  Lowest energy excitations:\n");
-    fprintf(outfile, "  --------------------------------------\n");
-    fprintf(outfile, "    N   Occupied     Virtual     E(eV)  \n");
-    fprintf(outfile, "  --------------------------------------\n");
-    int maxstates = std::min(10,static_cast<int>(sorted_hp_pairs.size()));
-    for (int n = 0; n < maxstates; ++n){
-        double energy_hp = sorted_hp_pairs[n].get<6>() - sorted_hp_pairs[n].get<3>();
-        fprintf(outfile,"   %2d:  %4d%-3s  -> %4d%-3s   %9.3f\n",n + 1,
-                sorted_hp_pairs[n].get<2>() + 1,
-                ct.gamma(sorted_hp_pairs[n].get<1>()).symbol(),
-                sorted_hp_pairs[n].get<5>() + 1,
-                ct.gamma(sorted_hp_pairs[n].get<4>()).symbol(),
-                energy_hp * _hartree2ev);
-    }
-    fprintf(outfile, "  --------------------------------------\n");
-
-    int select_pair = 0;
-    hole_h = sorted_hp_pairs[select_pair].get<1>();
-    hole_mo = sorted_hp_pairs[select_pair].get<2>();
-    part_h = sorted_hp_pairs[select_pair].get<4>();
-    part_mo = sorted_hp_pairs[select_pair].get<5>();
-    ra->set(hole_h,hole_mo,part_mo,1.0 / std::sqrt(2.0));
-    rb->set(hole_h,hole_mo,part_mo,-1.0 / std::sqrt(2.0));
-
-    // Compute the density matrix
-    genDa->zero();
-    genDb->zero();
-
-    // C1 symmetry
-    {
-    int naocc = nalphapi_[0];
-    int navir = nmopi_[0] - nalphapi_[0];
-    int nmo = nmopi_[0];
-    double** ra_h = ra->pointer(0);
-    for (int i = 0; i < naocc; ++i){
-        for (int j = 0; j < naocc; ++j){
-            double da = (i == j ? 1.0 : 0.0);
-            for (int c = naocc; c < nmo; ++c){
-                da -= ra_h[i][c] * ra_h[j][c];
-            }
-            genDa->set(0,i,j,da);
-        }
-    }
-    for (int a = naocc; a < nmo; ++a){
-        for (int b = naocc; b < nmo; ++b){
-            double da = 0.0;
-            for (int k = 0; k < naocc; ++k){
-                da += ra_h[k][a] * ra_h[k][b];
-            }
-            genDa->set(0,a,b,da);
-        }
-    }
-
-
-    }
-
-    {
-    int nbocc = nbetapi_[0];
-    int nbvir = nmopi_[0] - nbetapi_[0];
-    int nmo = nmopi_[0];
-    double** rb_h = rb->pointer(0);
-    for (int i = 0; i < nbocc; ++i){
-        for (int j = 0; j < nbocc; ++j){
-            double db = (i == j ? 1.0 : 0.0);
-            for (int c = nbocc; c < nmo; ++c){
-                db -= rb_h[i][c] * rb_h[j][c];
-            }
-            genDb->set(0,i,j,db);
-        }
-    }
-    for (int a = nbocc; a < nmo; ++a){
-        for (int b = nbocc; b < nmo; ++b){
-            double db = 0.0;
-            for (int k = 0; k < nbocc; ++k){
-                db += rb_h[k][a] * rb_h[k][b];
-            }
-            genDb->set(0,a,b,db);
-        }
-    }
-    }
-
-//    // Off-diagonal terms
+//    int symmetry = 0;
+//    SharedMatrix ra = SharedMatrix(new Matrix("r Amplitudes",nmopi_,nmopi_,symmetry));
+//    SharedMatrix rb = SharedMatrix(new Matrix("r Amplitudes",nmopi_,nmopi_,symmetry));
+//    SharedMatrix genDa = factory_->create_shared_matrix("genDa");
+//    SharedMatrix genDb = factory_->create_shared_matrix("genDb");
+//    // Determine the hole/particle pair to follow
+//    // Compute the symmetry adapted hole/particle pairs
+//    std::vector<boost::tuple<double,int,int,double,int,int,double> > sorted_hp_pairs;
 //    for (int h = 0; h < nirrep_; ++h){
-//        int g = h ^ symmetry;
-//        int nmo_h = nmopi_[h];
-//        int nmo_g = nmopi_[h];
-//        double** ra_h = ra->pointer(h);
-//        double** ra_g = ra->pointer(g);
-//        int navir_g = nmopi_[g] - nalphapi_[g];
-//        for (int p = 0; p < nmo; ++p){
-//            for (int q = 0; q < nmo; ++q){
-//                double da = 0.0;
-//                for (int c = navir_g; c < nmo_; ++c){
-//                    da -= ra_h[p][c] * ra_h[q][c];
-//                }
-//            }
-//        }
-
-//        int navir = nmopi_[h] - nalphapi_[h];
+//        int h_i = h;
 //        int h_a = h ^ symmetry;
-//        double** ra_h = ra->pointer(h);
-//        int nvir_ac = nmopi_[h_a] - nalphapi_[h_a];
-//        int nocc_ak = nalphapi_[h_a];
-//        for (int i = 0; i < naocc; ++i){
-//            for (int j = 0; j < naocc; ++j){
-//                double da = (i == j ? 1.0 : 0.0);
-//                for (int c = 0; c < nvir_ac; ++c){
-//                        da -= ra_h[i][c] * ra_h[j][c];
-//                }
-//                genDa->set(h,i,j,da);
-//            }
-//        }
-//        double** ra_h_a = ra->pointer(h_a);
-//        for (int a = 0; a < navir; ++a){
-//            for (int b = 0; b < navir; ++b){
-//                double da = 0.0;
-//                for (int k = 0; k < nocc_ak; ++k){
-//                        da += ra_h_a[k][a] * ra_h_a[k][b];
-//                }
-//                genDa->set(h,a + naocc,b + naocc,da);
-//            }
-//        }
-
-//        int nbocc = nbetapi_[h];
-//        int nbvir = nmopi_[h] - nbetapi_[h];
-//        double** rb_h = rb->pointer(h);
-//        int nvir_bc = nmopi_[h_a] - nbetapi_[h_a];
-//        int nocc_bk = nbetapi_[h_a];
-//        for (int i = 0; i < nbocc; ++i){
-//            for (int j = 0; j < nbocc; ++j){
-//                double db = (i == j ? 1.0 : 0.0);
-//                for (int c = 0; c < nvir_bc; ++c){
-//                        db -= rb_h[i][c] * rb_h[j][c];
-//                }
-//                genDb->set(h,i,j,db);
-//            }
-//        }
-//        double** rb_h_a = rb->pointer(h_a);
-//        for (int a = 0; a < nbvir; ++a){
-//            for (int b = 0; b < nbvir; ++b){
-//                double db = 0.0;
-//                for (int k = 0; k < nocc_ak; ++k){
-//                        db += rb_h_a[k][a] * rb_h_a[k][b];
-//                }
-//                genDb->set(h,a + nbocc,b + nbocc,db);
+//        int nocc_i = nalphapi_[h_i];
+//        int nocc_a = nalphapi_[h_a];
+//        int nvir_a = nmopi_[h_a] - nalphapi_[h_a];
+//        for (int i = 0; i < nocc_i; ++i){
+//            for (int a = 0; a < nvir_a; ++a){
+//                double e_i = epsilon_a_->get(h_i,i);
+//                double e_a = epsilon_a_->get(h_a,a + nocc_a);
+//                double delta_ai = e_a - e_i;
+//                sorted_hp_pairs.push_back(boost::make_tuple(delta_ai,h_i,i,e_i,h_a,a + nocc_a,e_a));
 //            }
 //        }
 //    }
 
+//    std::sort(sorted_hp_pairs.begin(),sorted_hp_pairs.end());
+////    if(iteration_ == 0){
+//    fprintf(outfile, "\n  Ground state symmetry: %s\n",ct.gamma(ground_state_symmetry_).symbol());
+//    fprintf(outfile, "  Excited state symmetry: %s\n",ct.gamma(excited_state_symmetry_).symbol());
+//    fprintf(outfile, "\n  Lowest energy excitations:\n");
+//    fprintf(outfile, "  --------------------------------------\n");
+//    fprintf(outfile, "    N   Occupied     Virtual     E(eV)  \n");
+//    fprintf(outfile, "  --------------------------------------\n");
+//    int maxstates = std::min(10,static_cast<int>(sorted_hp_pairs.size()));
+//    for (int n = 0; n < maxstates; ++n){
+//        double energy_hp = sorted_hp_pairs[n].get<6>() - sorted_hp_pairs[n].get<3>();
+//        fprintf(outfile,"   %2d:  %4d%-3s  -> %4d%-3s   %9.3f\n",n + 1,
+//                sorted_hp_pairs[n].get<2>() + 1,
+//                ct.gamma(sorted_hp_pairs[n].get<1>()).symbol(),
+//                sorted_hp_pairs[n].get<5>() + 1,
+//                ct.gamma(sorted_hp_pairs[n].get<4>()).symbol(),
+//                energy_hp * _hartree2ev);
+//    }
+//    fprintf(outfile, "  --------------------------------------\n");
+
+//    int select_pair = 0;
+//    aholes_h = sorted_hp_pairs[select_pair].get<1>();
+//    aholes_mo = sorted_hp_pairs[select_pair].get<2>();
+//    aparts_h = sorted_hp_pairs[select_pair].get<4>();
+//    aparts_mo = sorted_hp_pairs[select_pair].get<5>();
+//    ra->set(aholes_h,aholes_mo,aparts_mo,1.0 / std::sqrt(2.0));
+//    rb->set(aholes_h,aholes_mo,aparts_mo,-1.0 / std::sqrt(2.0));
+
+//    // Compute the density matrix
 //    genDa->zero();
 //    genDb->zero();
-//    for (int n = 0; n < 5; ++n){
 
+//    // C1 symmetry
+//    {
+//    int naocc = nalphapi_[0];
+//    int navir = nmopi_[0] - nalphapi_[0];
+//    int nmo = nmopi_[0];
+//    double** ra_h = ra->pointer(0);
+//    for (int i = 0; i < naocc; ++i){
+//        for (int j = 0; j < naocc; ++j){
+//            double da = (i == j ? 1.0 : 0.0);
+//            for (int c = naocc; c < nmo; ++c){
+//                da -= ra_h[i][c] * ra_h[j][c];
+//            }
+//            genDa->set(0,i,j,da);
+//        }
+//    }
+//    for (int a = naocc; a < nmo; ++a){
+//        for (int b = naocc; b < nmo; ++b){
+//            double da = 0.0;
+//            for (int k = 0; k < naocc; ++k){
+//                da += ra_h[k][a] * ra_h[k][b];
+//            }
+//            genDa->set(0,a,b,da);
+//        }
 //    }
 
 
-    Da_->back_transform(genDa,Ca_);
-    Db_->back_transform(genDb,Cb_);
-    Dt_->copy(Da_);
-    Dt_->add(Db_);
-//    nalphapi_[7] = 0;
-//    nalphapi_[2] = 1;
-
-//    form_D();
-//    for (int h = 0; h < nirrep_; ++h) {
-//        soccpi_[h] = std::abs(nalphapi_[h] - nbetapi_[h]);
-//        doccpi_[h] = std::min(nalphapi_[h] , nbetapi_[h]);
 //    }
-    form_G();
-    form_F();
+
+//    {
+//    int nbocc = nbetapi_[0];
+//    int nbvir = nmopi_[0] - nbetapi_[0];
+//    int nmo = nmopi_[0];
+//    double** rb_h = rb->pointer(0);
+//    for (int i = 0; i < nbocc; ++i){
+//        for (int j = 0; j < nbocc; ++j){
+//            double db = (i == j ? 1.0 : 0.0);
+//            for (int c = nbocc; c < nmo; ++c){
+//                db -= rb_h[i][c] * rb_h[j][c];
+//            }
+//            genDb->set(0,i,j,db);
+//        }
+//    }
+//    for (int a = nbocc; a < nmo; ++a){
+//        for (int b = nbocc; b < nmo; ++b){
+//            double db = 0.0;
+//            for (int k = 0; k < nbocc; ++k){
+//                db += rb_h[k][a] * rb_h[k][b];
+//            }
+//            genDb->set(0,a,b,db);
+//        }
+//    }
+//    }
+
+////    // Off-diagonal terms
+////    for (int h = 0; h < nirrep_; ++h){
+////        int g = h ^ symmetry;
+////        int nmo_h = nmopi_[h];
+////        int nmo_g = nmopi_[h];
+////        double** ra_h = ra->pointer(h);
+////        double** ra_g = ra->pointer(g);
+////        int navir_g = nmopi_[g] - nalphapi_[g];
+////        for (int p = 0; p < nmo; ++p){
+////            for (int q = 0; q < nmo; ++q){
+////                double da = 0.0;
+////                for (int c = navir_g; c < nmo_; ++c){
+////                    da -= ra_h[p][c] * ra_h[q][c];
+////                }
+////            }
+////        }
+
+////        int navir = nmopi_[h] - nalphapi_[h];
+////        int h_a = h ^ symmetry;
+////        double** ra_h = ra->pointer(h);
+////        int nvir_ac = nmopi_[h_a] - nalphapi_[h_a];
+////        int nocc_ak = nalphapi_[h_a];
+////        for (int i = 0; i < naocc; ++i){
+////            for (int j = 0; j < naocc; ++j){
+////                double da = (i == j ? 1.0 : 0.0);
+////                for (int c = 0; c < nvir_ac; ++c){
+////                        da -= ra_h[i][c] * ra_h[j][c];
+////                }
+////                genDa->set(h,i,j,da);
+////            }
+////        }
+////        double** ra_h_a = ra->pointer(h_a);
+////        for (int a = 0; a < navir; ++a){
+////            for (int b = 0; b < navir; ++b){
+////                double da = 0.0;
+////                for (int k = 0; k < nocc_ak; ++k){
+////                        da += ra_h_a[k][a] * ra_h_a[k][b];
+////                }
+////                genDa->set(h,a + naocc,b + naocc,da);
+////            }
+////        }
+
+////        int nbocc = nbetapi_[h];
+////        int nbvir = nmopi_[h] - nbetapi_[h];
+////        double** rb_h = rb->pointer(h);
+////        int nvir_bc = nmopi_[h_a] - nbetapi_[h_a];
+////        int nocc_bk = nbetapi_[h_a];
+////        for (int i = 0; i < nbocc; ++i){
+////            for (int j = 0; j < nbocc; ++j){
+////                double db = (i == j ? 1.0 : 0.0);
+////                for (int c = 0; c < nvir_bc; ++c){
+////                        db -= rb_h[i][c] * rb_h[j][c];
+////                }
+////                genDb->set(h,i,j,db);
+////            }
+////        }
+////        double** rb_h_a = rb->pointer(h_a);
+////        for (int a = 0; a < nbvir; ++a){
+////            for (int b = 0; b < nbvir; ++b){
+////                double db = 0.0;
+////                for (int k = 0; k < nocc_ak; ++k){
+////                        db += rb_h_a[k][a] * rb_h_a[k][b];
+////                }
+////                genDb->set(h,a + nbocc,b + nbocc,db);
+////            }
+////        }
+////    }
+
+////    genDa->zero();
+////    genDb->zero();
+////    for (int n = 0; n < 5; ++n){
+
+////    }
+
+
+//    Da_->back_transform(genDa,Ca_);
+//    Db_->back_transform(genDb,Cb_);
+//    Dt_->copy(Da_);
+//    Dt_->add(Db_);
+////    nalphapi_[7] = 0;
+////    nalphapi_[2] = 1;
+
+////    form_D();
+////    for (int h = 0; h < nirrep_; ++h) {
+////        soccpi_[h] = std::abs(nalphapi_[h] - nbetapi_[h]);
+////        doccpi_[h] = std::min(nalphapi_[h] , nbetapi_[h]);
+////    }
+//    form_G();
+//    form_F();
 
 
 
-    // Compute the energy
-    double cis_energy = compute_E() - E_;
-    fprintf(outfile,"\n  CIS excited state = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
-            cis_energy,cis_energy * _hartree2ev, cis_energy * _hartree2wavenumbers);
+//    // Compute the energy
+//    double cis_energy = compute_E() - E_;
+//    fprintf(outfile,"\n  CIS excited state = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+//            cis_energy,cis_energy * _hartree2ev, cis_energy * _hartree2wavenumbers);
 }
 
 //void UCKS::form_D_cis()

@@ -26,6 +26,12 @@ protected:
     bool do_excitation;
     /// Compute a state of a given symmetry?
     bool do_symmetry;
+    /// Optimized the holes
+    bool do_holes;
+    /// Optimized the particles
+    bool do_parts;
+    /// Optimize the spectators
+    bool do_opt_spectators;
     /// Ground state energy
     double ground_state_energy;
     /// Ground state symmetry
@@ -82,18 +88,10 @@ protected:
     /// The eigenvalues of PvFPv
     SharedVector lambda_b_v_;
 
-    /// The irrep of the hole
-    int hole_h;
-    /// The hole index
-    int  hole_mo;
-    /// The hole energy
-    double hole_energy;
-    /// The irrep of the particle
-    int part_h;
-    /// The particle index
-    int part_mo;
-    /// The particle energy
-    double part_energy;
+    /// The list of alpha holes (irrep,mo,energy)
+    std::vector<boost::tuple<int,int,double> > aholes;
+    /// The list of alpha particles (irrep,mo,energy)
+    std::vector<boost::tuple<int,int,double> > aparts;
     /// The ground state alpha occupation numbers per irrep
     Dimension gs_nalphapi_;
     /// The ground state alpha virtual mos per irrep
@@ -104,6 +102,7 @@ protected:
     Dimension gs_nbvirpi_;
     Dimension saved_naholepi_;
     Dimension saved_napartpi_;
+    Dimension zero_dim_;
 
     /// Number of alpha holes per irrep
     Dimension naholepi_;
