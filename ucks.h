@@ -229,7 +229,7 @@ protected:
     virtual bool test_convergency();
     virtual void guess();
     virtual void save_information();
-    virtual void save_fock();
+    virtual void compute_orbital_gradient(bool save_fock);
 };
 
 }} // Namespaces

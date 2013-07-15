@@ -257,9 +257,9 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
         fprintf(outfile,"  W . h = %20.12f\n", one_body);
         fprintf(outfile,"  1/2 W . J - 1/2 Wa . Ka - 1/2 Wb . Kb = %20.12f\n", two_body);
 
-        fprintf(outfile,"  E1 = %20.12f\n", _hartree2ev * ((E_ + hamiltonian)/(1+overlap) - ground_state_energy) );
-        fprintf(outfile,"  E2 = %20.12f\n", _hartree2ev * ((E_ - hamiltonian)/(1-overlap) - ground_state_energy) );
-        fprintf(outfile,"  E1-E2 = %20.12f\n", _hartree2ev * ((E_ + hamiltonian)/(1+overlap) - (E_ - hamiltonian)/(1-overlap)));
+        fprintf(outfile,"  E1 = %20.12f\n", pc_hartree2ev * ((E_ + hamiltonian)/(1+overlap) - ground_state_energy) );
+        fprintf(outfile,"  E2 = %20.12f\n", pc_hartree2ev * ((E_ - hamiltonian)/(1-overlap) - ground_state_energy) );
+        fprintf(outfile,"  E1-E2 = %20.12f\n", pc_hartree2ev * ((E_ + hamiltonian)/(1+overlap) - (E_ - hamiltonian)/(1-overlap)));
 
         C_left = jk_->C_left();
         C_left.clear();

@@ -314,49 +314,35 @@ void UCKS::form_G()
     form_V();
     timer_off("Form V");
 
-    if (scf_type_ == "OUT_OF_CORE" || scf_type_ == "PK" || scf_type_ == "DF" || scf_type_ == "PS") {
-        // Push the C matrix on
-        std::vector<SharedMatrix> & C = jk_->C_left();
-        C.clear();
-        C.push_back(Ca_subset("SO", "OCC"));
-        C.push_back(Cb_subset("SO", "OCC"));
+    // Push the C matrix on
+    std::vector<SharedMatrix> & C = jk_->C_left();
+    C.clear();
+    C.push_back(Ca_subset("SO", "OCC"));
+    C.push_back(Cb_subset("SO", "OCC"));
 
-        // Addition to standard call, make sure that C_right is not set
-        std::vector<SharedMatrix> & C_right = jk_->C_right();
-        C_right.clear();
+    // Addition to standard call, make sure that C_right is not set
+    std::vector<SharedMatrix> & C_right = jk_->C_right();
+    C_right.clear();
 
-        // Run the JK object
-        jk_->compute();
+    // Run the JK object
+    jk_->compute();
 
-        // Pull the J and K matrices off
-        const std::vector<SharedMatrix> & J = jk_->J();
-        const std::vector<SharedMatrix> & K = jk_->K();
-        const std::vector<SharedMatrix> & wK = jk_->wK();
-        J_->copy(J[0]);
-        J_->add(J[1]);
-        if (functional_->is_x_hybrid()) {
-            Ka_ = K[0];
-            Kb_ = K[1];
-        }
-        if (functional_->is_x_lrc()) {
-            wKa_ = wK[0];
-            wKb_ = wK[1];
-        }
-        Ga_->copy(J_);
-        Gb_->copy(J_);
-
-    } else {
-        if (functional_->is_x_lrc()) {
-            Omega_Ka_Kb_Functor k_builder(functional_->x_omega(),wKa_,wKb_,Da_,Db_,Ca_,Cb_,nalphapi_,nbetapi_);
-            process_omega_tei<Omega_Ka_Kb_Functor>(k_builder);
-        }
-
-        // This will build J (stored in G) and K
-        J_Ka_Kb_Functor jk_builder(Ga_, Ka_, Kb_, Da_, Db_, Ca_, Cb_, nalphapi_, nbetapi_);
-        process_tei<J_Ka_Kb_Functor>(jk_builder);
-        J_->copy(Ga_);
-        Gb_->copy(Ga_);
+    // Pull the J and K matrices off
+    const std::vector<SharedMatrix> & J = jk_->J();
+    const std::vector<SharedMatrix> & K = jk_->K();
+    const std::vector<SharedMatrix> & wK = jk_->wK();
+    J_->copy(J[0]);
+    J_->add(J[1]);
+    if (functional_->is_x_hybrid()) {
+        Ka_ = K[0];
+        Kb_ = K[1];
     }
+    if (functional_->is_x_lrc()) {
+        wKa_ = wK[0];
+        wKb_ = wK[1];
+    }
+    Ga_->copy(J_);
+    Gb_->copy(J_);
 
     Ga_->add(Va_);
     Gb_->add(Vb_);
@@ -488,8 +474,8 @@ void UCKS::form_C()
             double angle = KS::options_["CDFT_BREAK_SYMMETRY"][2].to_double();
             fprintf(outfile,"\n  Mixing the alpha orbitals %d and %d by %f.1 degrees\n\n",np,nq,angle);
             fflush(outfile);
-            Ca_->rotate_columns(0,np-1,nq-1,_pi * angle / 180.0);
-            Cb_->rotate_columns(0,np-1,nq-1,-_pi * angle / 180.0);
+            Ca_->rotate_columns(0,np-1,nq-1,pc_pi * angle / 180.0);
+            Cb_->rotate_columns(0,np-1,nq-1,-pc_pi * angle / 180.0);
             // Reset the DIIS subspace
             diis_manager_->reset_subspace();
         }
@@ -654,7 +640,7 @@ void UCKS::find_ee_occupation(SharedVector lambda_o,SharedVector lambda_v)
                     ct.gamma(sorted_hp_pairs[n].get<1>()).symbol(),
                     gs_nalphapi_[sorted_hp_pairs[n].get<4>()] + sorted_hp_pairs[n].get<5>() + 1,
                     ct.gamma(sorted_hp_pairs[n].get<4>()).symbol(),
-                    energy_hp * _hartree2ev);
+                    energy_hp * pc_hartree2ev);
         }
         fprintf(outfile, "  --------------------------------------\n");
 
@@ -1454,7 +1440,7 @@ void UCKS::save_information()
     if(do_excitation){
         double mixlet_exc_energy = E_ - ground_state_energy;
         fprintf(outfile,"  Excited mixed state   : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
-                mixlet_exc_energy,mixlet_exc_energy * _hartree2ev, mixlet_exc_energy * _hartree2wavenumbers);
+                mixlet_exc_energy,mixlet_exc_energy * pc_hartree2ev, mixlet_exc_energy * pc_hartree2wavenumbers);
         if(KS::options_.get_bool("CDFT_SPIN_ADAPT_CI")){
             spin_adapt_mixed_excitation();
         }
@@ -1470,29 +1456,76 @@ void UCKS::save_information()
 //    }
 }
 
-void UCKS::save_fock()
+//void UCKS::save_fock()
+//{
+//    if(not do_excitation){
+//        UHF::save_fock();
+//    }else{
+//        if (initialized_diis_manager_ == false) {
+//            diis_manager_ = boost::shared_ptr<DIISManager>(new DIISManager(max_diis_vectors_, "HF DIIS vector", DIISManager::LargestError, DIISManager::OnDisk));
+//            diis_manager_->set_error_vector_size(2,
+//                                                 DIISEntry::Matrix, Fa_.get(),
+//                                                 DIISEntry::Matrix, Fb_.get());
+//            diis_manager_->set_vector_size(2,
+//                                           DIISEntry::Matrix, Fa_.get(),
+//                                           DIISEntry::Matrix, Fb_.get());
+//            initialized_diis_manager_ = true;
+//        }
+
+//        SharedMatrix errveca(moFeffa_);
+//        errveca->zero_diagonal();
+//        errveca->back_transform(Ca_);
+//        SharedMatrix errvecb(moFeffb_);
+//        errvecb->zero_diagonal();
+//        errvecb->back_transform(Cb_);
+//        diis_manager_->add_entry(4, errveca.get(), errvecb.get(), Fa_.get(), Fb_.get());
+//    }
+//}
+
+
+void UCKS::compute_orbital_gradient(bool save_fock)
 {
     if(not do_excitation){
-        UHF::save_fock();
+        UHF::compute_orbital_gradient(save_fock);
     }else{
-        if (initialized_diis_manager_ == false) {
-            diis_manager_ = boost::shared_ptr<DIISManager>(new DIISManager(max_diis_vectors_, "HF DIIS vector", DIISManager::LargestError, DIISManager::OnDisk));
-            diis_manager_->set_error_vector_size(2,
-                                                 DIISEntry::Matrix, Fa_.get(),
-                                                 DIISEntry::Matrix, Fb_.get());
-            diis_manager_->set_vector_size(2,
-                                           DIISEntry::Matrix, Fa_.get(),
-                                           DIISEntry::Matrix, Fb_.get());
-            initialized_diis_manager_ = true;
-        }
+        SharedMatrix gradient_a = form_FDSmSDF(Fa_, Da_);
+        SharedMatrix gradient_b = form_FDSmSDF(Fb_, Db_);
+        Drms_ = 0.5*(gradient_a->rms() + gradient_b->rms());
 
-        SharedMatrix errveca(moFeffa_);
-        errveca->zero_diagonal();
-        errveca->back_transform(Ca_);
-        SharedMatrix errvecb(moFeffb_);
-        errvecb->zero_diagonal();
-        errvecb->back_transform(Cb_);
-        diis_manager_->add_entry(4, errveca.get(), errvecb.get(), Fa_.get(), Fb_.get());
+//        if(save_fock){
+//            if (initialized_diis_manager_ == false) {
+//                diis_manager_ = boost::shared_ptr<DIISManager>(new DIISManager(max_diis_vectors_, "HF DIIS vector", DIISManager::LargestError, DIISManager::OnDisk));
+//                diis_manager_->set_error_vector_size(2,
+//                                                     DIISEntry::Matrix, gradient_a.get(),
+//                                                     DIISEntry::Matrix, gradient_b.get());
+//                diis_manager_->set_vector_size(2,
+//                                               DIISEntry::Matrix, Fa_.get(),
+//                                               DIISEntry::Matrix, Fb_.get());
+//                initialized_diis_manager_ = true;
+//            }
+
+//            diis_manager_->add_entry(4, gradient_a.get(), gradient_b.get(), Fa_.get(), Fb_.get());
+//        }
+
+        if(save_fock){
+            if (initialized_diis_manager_ == false) {
+                diis_manager_ = boost::shared_ptr<DIISManager>(new DIISManager(max_diis_vectors_, "HF DIIS vector", DIISManager::LargestError, DIISManager::OnDisk));
+                diis_manager_->set_error_vector_size(2,
+                                                     DIISEntry::Matrix, Fa_.get(),
+                                                     DIISEntry::Matrix, Fb_.get());
+                diis_manager_->set_vector_size(2,
+                                               DIISEntry::Matrix, Fa_.get(),
+                                               DIISEntry::Matrix, Fb_.get());
+                initialized_diis_manager_ = true;
+            }
+            SharedMatrix errveca(moFeffa_);
+            errveca->zero_diagonal();
+            errveca->back_transform(Ca_);
+            SharedMatrix errvecb(moFeffb_);
+            errvecb->zero_diagonal();
+            errvecb->back_transform(Cb_);
+            diis_manager_->add_entry(4, errveca.get(), errvecb.get(), Fa_.get(), Fb_.get());
+        }
     }
 }
 
@@ -1526,12 +1559,12 @@ void UCKS::spin_adapt_mixed_excitation()
     fprintf(outfile,"\n  Excited triplet state %d-%s : excitation energy (CI) = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
             state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
             ct.gamma(excited_state_symmetry_).symbol(),
-            triplet_exc_energy,triplet_exc_energy * _hartree2ev, triplet_exc_energy * _hartree2wavenumbers);
+            triplet_exc_energy,triplet_exc_energy * pc_hartree2ev, triplet_exc_energy * pc_hartree2wavenumbers);
 
     fprintf(outfile,"  Excited singlet state %d-%s : excitation energy (CI) = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
             state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
             ct.gamma(excited_state_symmetry_).symbol(),
-            singlet_exc_energy,singlet_exc_energy * _hartree2ev, singlet_exc_energy * _hartree2wavenumbers);
+            singlet_exc_energy,singlet_exc_energy * pc_hartree2ev, singlet_exc_energy * pc_hartree2wavenumbers);
 }
 
 double UCKS::compute_triplet_correction()
@@ -1857,12 +1890,12 @@ double UCKS::compute_S_plus_triplet_correction()
     fprintf(outfile,"\n  Excited triplet state %d-%s : excitation energy (S+) = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
             state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
             ct.gamma(excited_state_symmetry_).symbol(),
-            triplet_exc_energy,triplet_exc_energy * _hartree2ev, triplet_exc_energy * _hartree2wavenumbers);
+            triplet_exc_energy,triplet_exc_energy * pc_hartree2ev, triplet_exc_energy * pc_hartree2wavenumbers);
     double singlet_exc_energy = 2.0 * E_ - triplet_energy - ground_state_energy;
     fprintf(outfile,"  Excited singlet state %d-%s : excitation energy (S+) = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
             state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
             ct.gamma(excited_state_symmetry_).symbol(),
-            singlet_exc_energy,singlet_exc_energy * _hartree2ev, singlet_exc_energy * _hartree2wavenumbers);
+            singlet_exc_energy,singlet_exc_energy * pc_hartree2ev, singlet_exc_energy * pc_hartree2wavenumbers);
 
     fprintf(outfile,"\n\n");
     compute_spin_contamination();

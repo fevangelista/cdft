@@ -1,14 +1,14 @@
-import PsiMod
+import psi4
 import re
 import os
-import input
+import inputparser
 import math
 import warnings
 from driver import *
 from wrappers import *
 from molutil import *
-from text import *
-from procutil import *
+import p4util
+from psiexceptions import *
 
 
 def run_cdft(name, **kwargs):
@@ -19,21 +19,13 @@ def run_cdft(name, **kwargs):
 
     """
     lowername = name.lower()
-    kwargs = kwargs_lower(kwargs)
+    kwargs = p4util.kwargs_lower(kwargs)
 
-    # Your plugin's PsiMod run sequence goes here
-    #PsiMod.set_global_option('BASIS', 'sto-3g')
-    #PsiMod.set_local_option('CKS2', 'PRINT', 1)
-    #energy('scf', **kwargs)
-    returnvalue = PsiMod.plugin('cdft.so')
+    # Your plugin's psi4 run sequence goes here
+    returnvalue = psi4.plugin('cdft.so')
 
     return returnvalue
 
 
 # Integration with driver routines
 procedures['energy']['cdft'] = run_cdft
-
-
-def exampleFN():
-    # Your Python code goes here
-    pass

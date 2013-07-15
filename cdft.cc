@@ -7,6 +7,9 @@
 #include <libciomr/libciomr.h>
 #include <ucks.h>
 
+#include <libmints/writer.h>
+#include <libmints/writer_file_prefix.h>
+
 INIT_PLUGIN
 
 using namespace boost;
@@ -92,9 +95,10 @@ PsiReturnType cdft(Options& options)
         Process::environment.set_wavefunction(ref_scf);
         double gs_energy = ref_scf->compute_energy();
         // Print a molden file
-        if ( options["MOLDEN_FILE"].has_changed() ) {
+        if ( options["MOLDEN_WRITE"].has_changed() ) {
            boost::shared_ptr<MoldenWriter> molden(new MoldenWriter(ref_scf));
-           molden->write("0." + options.get_str("MOLDEN_FILE"));
+           std::string filename = get_writer_file_prefix() + "." + to_string(0) + ".molden";
+           molden->write(filename);
         }
         energies.push_back(gs_energy);
 
@@ -110,9 +114,10 @@ PsiReturnType cdft(Options& options)
                 Process::environment.set_wavefunction(new_scf);
                 double new_energy = new_scf->compute_energy();
                 // Print a molden file
-                if ( options["MOLDEN_FILE"].has_changed() ) {
+                if ( options["MOLDEN_WRITE"].has_changed() ) {
                     boost::shared_ptr<MoldenWriter> molden(new MoldenWriter(new_scf));
-                    molden->write(to_string(state) + "." + options.get_str("MOLDEN_FILE"));
+                    std::string filename = get_writer_file_prefix() + "." + to_string(state) + ".molden";
+                    molden->write(filename);
                 }
                 energies.push_back(new_energy);
                 ref_scf = new_scf;
@@ -140,9 +145,10 @@ PsiReturnType cdft(Options& options)
                     Process::environment.set_wavefunction(new_scf);
                     double new_energy = new_scf->compute_energy();
                     // Print a molden file
-                    if ( options["MOLDEN_FILE"].has_changed() ) {
-                        boost::shared_ptr<MoldenWriter> molden(new MoldenWriter(new_scf));
-                        molden->write("state_" + to_string(state) + "_irrep_" + to_string(h + 1) + "." + options.get_str("MOLDEN_FILE"));
+                    if ( options.get_bool("MOLDEN_WRITE") ) {
+                       boost::shared_ptr<MoldenWriter> molden(new MoldenWriter(new_scf));
+                       std::string filename = get_writer_file_prefix() + "." + to_string(h) + "." + to_string(state) + ".molden";
+                       molden->write(filename);
                     }
                     energies.push_back(new_energy);
                     ref_scf = new_scf;
