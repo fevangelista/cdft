@@ -12,8 +12,8 @@
 #include "boost/tuple/tuple_comparison.hpp"
 #include <libiwl/iwl.hpp>
 #include <psifiles.h>
-#include <libscf_solver/integralfunctors.h>
-#include <libscf_solver/omegafunctors.h>
+//#include <libscf_solver/integralfunctors.h>
+//#include <libscf_solver/omegafunctors.h>
 
 #define DEBUG_THIS2(EXP) \
     fprintf(outfile,"\n  Starting " #EXP " ..."); fflush(outfile); \
