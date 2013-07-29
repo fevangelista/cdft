@@ -55,9 +55,9 @@ protected:
 
     /// The Fock matrix projected onto the spectator space
     SharedMatrix QFQ_;
-    /// The holes
+    /// The hole orbitals coefficients
     SharedMatrix Ch_;
-    /// The particles
+    /// The particle orbitals coefficients
     SharedMatrix Cp_;
     /// The holes
     SharedMatrix saved_Ch_;
@@ -104,8 +104,11 @@ protected:
     Dimension gs_nbetapi_;
     /// The ground state alpha virtual mos per irrep
     Dimension gs_nbvirpi_;
+    /// The number of alpha holes saved from previous computations
     Dimension saved_naholepi_;
+    /// The number of alpha particles saved from previous computations
     Dimension saved_napartpi_;
+    /// A dimension vector with all zeros
     Dimension zero_dim_;
 
     /// Number of alpha holes per irrep

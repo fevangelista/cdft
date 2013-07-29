@@ -124,6 +124,8 @@ void UCKS::init()
         }
     }
 
+    saved_naholepi_ = Dimension(nirrep_,"Saved number of holes per irrep");
+    saved_napartpi_ = Dimension(nirrep_,"Saved number of particles per irrep");
     zero_dim_ = Dimension(nirrep_);
 
     nconstraints = static_cast<int>(constraints.size());
@@ -180,6 +182,17 @@ void UCKS::init_excitation(boost::shared_ptr<Wavefunction> ref_scf)
         do_holes = false;
     }
 
+    std::string project_out = KS::options_.get_str("CDFT_PROJECT_OUT");
+    do_project_out_holes = false;
+    do_project_out_particles = false;
+    if (project_out == "H"){
+        do_project_out_holes = true;
+    }else if (project_out == "P"){
+        do_project_out_particles = true;
+    }else if (project_out == "HP"){
+        do_project_out_holes = true;
+        do_project_out_particles = true;
+    }
 
     // Save the reference state MOs and occupation numbers
     fprintf(outfile,"  Saving the reference orbitals for an excited state computation\n");
@@ -196,16 +209,15 @@ void UCKS::init_excitation(boost::shared_ptr<Wavefunction> ref_scf)
     gs_nbetapi_  = ucks_ptr->dets[0]->nbetapi();
     gs_nbvirpi_  = nmopi_ - gs_nbetapi_;
 
+    // Grab the saved number of alpha holes/particles
+    saved_naholepi_ = ucks_ptr->naholepi_;
+    saved_napartpi_ = ucks_ptr->napartpi_;
     if (state_ == 1){
-        saved_naholepi_ = Dimension(nirrep_,"Saved number of holes per irrep");
-        saved_napartpi_ = Dimension(nirrep_,"Saved number of particles per irrep");
+        dets.push_back(ucks_ptr->dets[0]);
         saved_Ch_ = SharedMatrix(new Matrix("Ch_",nsopi_,gs_nalphapi_));
         saved_Cp_ = SharedMatrix(new Matrix("Cp_",nsopi_,gs_navirpi_));
-        dets.push_back(ucks_ptr->dets[0]);
     }else{
         dets = ucks_ptr->dets;
-        saved_naholepi_ = ucks_ptr->naholepi_;
-        saved_napartpi_ = ucks_ptr->naholepi_;
         saved_Ch_ = ucks_ptr->Ch_;
         saved_Cp_ = ucks_ptr->Cp_;
     }
@@ -534,7 +546,7 @@ void UCKS::compute_holes()
     // Grab the occ block of Fa
     copy_block(TempMatrix,1.0,PoFaPo_,0.0,gs_nalphapi_,gs_nalphapi_);
 
-    // Form the projector Ph = 1 - (Ch S Ca)^T Ch S Ca
+    // Form the projector 1 - Ph = 1 - (Ch^T S Ca_gs)^T Ch^T S Ca_gs
     TempMatrix->zero();
     TempMatrix->gemm(false,true,1.0,saved_Ch_,saved_Ch_,0.0);
     TempMatrix->transform(S_);
@@ -543,8 +555,11 @@ void UCKS::compute_holes()
     Ph->identity();
     copy_block(TempMatrix,-1.0,Ph,1.0,gs_nalphapi_,gs_nalphapi_);
 
-    // Project out the previous holes
-    PoFaPo_->transform(Ph);
+    if(do_project_out_holes){
+        // Project out the previous holes
+        PoFaPo_->transform(Ph);
+        fprintf(outfile,"  Projecting out the previous holes\n");
+    }
 
     // Diagonalize the occ block
     PoFaPo_->diagonalize(Ua_o_,lambda_a_o_);
@@ -573,7 +588,7 @@ void UCKS::compute_particles()
     // Grab the vir block of Fa
     copy_block(TempMatrix,1.0,PvFaPv_,0.0,gs_navirpi_,gs_navirpi_,gs_nalphapi_,gs_nalphapi_);
 
-    // Form the projector Pp = 1 - (Ca S Cp)^T Cp S Ca
+    // Form the projector Pp = 1 - (Cp^T S Ca_gs)^T Cp^T S Ca_gs
     TempMatrix->zero();
     TempMatrix->gemm(false,true,1.0,saved_Cp_,saved_Cp_,0.0);
     TempMatrix->transform(S_);
@@ -582,8 +597,11 @@ void UCKS::compute_particles()
     Pp->identity();
     copy_block(TempMatrix,-1.0,Pp,1.0,gs_navirpi_,gs_navirpi_,gs_nalphapi_,gs_nalphapi_);
 
-    // Project out the previous particles
-    PvFaPv_->transform(Pp);
+    if (do_project_out_particles){
+        // Project out the previous particles
+        PvFaPv_->transform(Pp);
+        fprintf(outfile,"  Projecting out the previous particles\n");
+    }
 
     // Diagonalize the vir block
     PvFaPv_->diagonalize(Ua_v_,lambda_a_v_);
@@ -702,8 +720,10 @@ void UCKS::find_ee_occupation(SharedVector lambda_o,SharedVector lambda_v)
     }
     fflush(outfile);
 
-    naholepi_ = saved_naholepi_;    
-    napartpi_ = saved_napartpi_;
+    for (int h = 0; h < nirrep_; ++h){
+        naholepi_[h] = 0;
+        napartpi_[h] = 0;
+    }
 
     // Compute the number of hole and/or particle orbitals to compute
     fprintf(outfile,"\n  HOLES:     ");
@@ -731,9 +751,8 @@ void UCKS::compute_hole_particle_mos()
 {
     SharedMatrix Ca0 = dets[0]->Ca();
 
-    Ch_->copy(saved_Ch_);  // WRONG
-    Cp_->copy(saved_Cp_);  // WRONG
-
+    Ch_->zero();
+    Cp_->zero();
     // Compute the hole orbitals
     size_t naholes = aholes.size();
     std::vector<int> hoffset(nirrep_,0);
@@ -778,9 +797,15 @@ void UCKS::diagonalize_F_spectator_relaxed()
     // Project the hole, the particles, or both depending on the method
     if(do_holes){
         TempMatrix->gemm(false,true,1.0,Ch_,Ch_,1.0);
+        if(do_project_out_holes){
+            TempMatrix->gemm(false,true,1.0,saved_Ch_,saved_Ch_,1.0);
+        }
     }
     if(do_parts){
         TempMatrix->gemm(false,true,1.0,Cp_,Cp_,1.0);
+        if(do_project_out_particles){
+            TempMatrix->gemm(false,true,1.0,saved_Cp_,saved_Cp_,1.0);
+        }
     }
     TempMatrix->transform(S_);
     TempMatrix->transform(dets[0]->Ca());
@@ -838,8 +863,19 @@ void UCKS::sort_ee_mos()
         double** C_h = Ca_->pointer(h);
         double** Cp_h = Cp_->pointer(h);
         double** Ch_h = Ch_->pointer(h);
+        double** saved_Cp_h = saved_Cp_->pointer(h);
+        double** saved_Ch_h = saved_Ch_->pointer(h);
+
         int m = 0;
         // First place the particles
+        if(do_project_out_holes){
+            for (int p = 0; p < saved_naholepi_[h]; ++p){
+                for (int q = 0; q < nso; ++q){
+                    T_h[q][m] = saved_Ch_h[q][p];
+                }
+                m += 1;
+            }
+        }
         if(do_parts){
             for (int p = 0; p < napartpi_[h]; ++p){
                 for (int q = 0; q < nso; ++q){
@@ -1434,8 +1470,9 @@ bool UCKS::test_convergency()
 
 void UCKS::save_information()
 {
-    saved_naholepi_ = naholepi_;
-    saved_napartpi_ = napartpi_;
+
+//    saved_naholepi_ = naholepi_;
+//    saved_napartpi_ = napartpi_;
     dets.push_back(SharedDeterminant(new Determinant(E_,Ca_,Cb_,nalphapi_,nbetapi_)));
     if(do_excitation){
         double mixlet_exc_energy = E_ - ground_state_energy;
@@ -1447,9 +1484,30 @@ void UCKS::save_information()
         if(KS::options_.get_bool("CDFT_SPIN_ADAPT_SP")){
             compute_S_plus_triplet_correction();
         }
+
+        if (do_project_out_holes){
+            // Add the saved holes to the Ch_ matrix
+            for (int h = 0; h < nirrep_; ++h){
+                for (int i = 0; i < saved_naholepi_[h]; ++i){
+                    Ch_->set_column(h,naholepi_[h] + i,saved_Ch_->get_column(h,i));
+                }
+            }
+            naholepi_ += saved_naholepi_;
+        }
+        if (do_project_out_particles){
+            // Add the saved particles to the Cp_ matrix
+            for (int h = 0; h < nirrep_; ++h){
+                for (int i = 0; i < saved_napartpi_[h]; ++i){
+                    Cp_->set_column(h,napartpi_[h] + i,saved_Cp_->get_column(h,i));
+                }
+            }
+            napartpi_ += saved_napartpi_;
+        }
     }
     if(KS::options_.get_str("CDFT_EXC_METHOD") == "CIS")
         cis_excitation_energy();
+
+
 //    if(KS::options_["CDFT_BREAK_SYMMETRY"].has_changed()){
 //        spin_adapt_mixed_excitation();
 //        compute_S_plus_triplet_correction();
