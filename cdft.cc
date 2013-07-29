@@ -56,6 +56,8 @@ int read_options(std::string name, Options& options)
         options.add("CDFT_EXC_HOLE_SYMMETRY", new ArrayType());
         /*- Select the type of excited state to target -*/
         options.add_str("CDFT_EXC_TYPE","VALENCE","VALENCE CORE IP EA");
+        /*- Select the type of excited state to target -*/
+        options.add_str("CDFT_PROJECT_OUT","H","H P HP");
         /*- The threshold for the gradient of the constraint -*/
         options.add_double("W_CONVERGENCE",1.0e-5);
         /*- The Lagrange multiplier for the SUHF formalism -*/

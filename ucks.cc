@@ -582,7 +582,7 @@ void UCKS::compute_particles()
     Pp->identity();
     copy_block(TempMatrix,-1.0,Pp,1.0,gs_navirpi_,gs_navirpi_,gs_nalphapi_,gs_nalphapi_);
 
-    // Project out the previous holes
+    // Project out the previous particles
     PvFaPv_->transform(Pp);
 
     // Diagonalize the vir block

@@ -32,6 +32,10 @@ protected:
     bool do_parts;
     /// Optimize the spectators
     bool do_opt_spectators;
+    /// For multiple excited state project out previous holes
+    bool do_project_out_holes;
+    /// For multiple excited state project out previous particles
+    bool do_project_out_particles;
     /// Ground state energy
     double ground_state_energy;
     /// Ground state symmetry
