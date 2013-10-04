@@ -1652,8 +1652,6 @@ void UCKS::compute_transition_moments()
             da[nu][mu] = ca[mu][i_A_mo] * cb[nu][i_B_mo];
         }
     }
-    trDa->print();
-
 
     // Contract the dipole moment operators with the pseudo-density matrix
     boost::shared_ptr<OEProp> oe(new OEProp());
