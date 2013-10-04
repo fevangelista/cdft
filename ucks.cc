@@ -653,7 +653,7 @@ void UCKS::find_ee_occupation(SharedVector lambda_o,SharedVector lambda_v)
         int maxstates = std::min(10,static_cast<int>(sorted_hp_pairs.size()));
         for (int n = 0; n < maxstates; ++n){
             double energy_hp = sorted_hp_pairs[n].get<6>() - sorted_hp_pairs[n].get<3>();
-            fprintf(outfile,"   %2d:  %4d%-3s  -> %4d%-3s   %9.3f\n",n + 1,
+            fprintf(outfile,"   %2d   %4d%-3s  -> %4d%-3s   %9.3f\n",n + 1,
                     sorted_hp_pairs[n].get<2>() + 1,
                     ct.gamma(sorted_hp_pairs[n].get<1>()).symbol(),
                     gs_nalphapi_[sorted_hp_pairs[n].get<4>()] + sorted_hp_pairs[n].get<5>() + 1,
@@ -1470,11 +1470,11 @@ bool UCKS::test_convergency()
 
 void UCKS::save_information()
 {
-
 //    saved_naholepi_ = naholepi_;
 //    saved_napartpi_ = napartpi_;
     dets.push_back(SharedDeterminant(new Determinant(E_,Ca_,Cb_,nalphapi_,nbetapi_)));
     if(do_excitation){
+        compute_transition_moments();
         double mixlet_exc_energy = E_ - ground_state_energy;
         fprintf(outfile,"  Excited mixed state   : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
                 mixlet_exc_energy,mixlet_exc_energy * pc_hartree2ev, mixlet_exc_energy * pc_hartree2wavenumbers);
@@ -1512,6 +1512,158 @@ void UCKS::save_information()
 //        spin_adapt_mixed_excitation();
 //        compute_S_plus_triplet_correction();
 //    }
+}
+
+
+
+void UCKS::compute_transition_moments()
+{
+    double overlap = 0.0;
+    double hamiltonian = 0.0;
+
+    fprintf(outfile,"\n  Computing transition dipole moments");
+    fprintf(outfile,"\n  %d determinants stored",static_cast<int>(dets.size()));
+
+    SharedDeterminant A = dets[0];
+    SharedDeterminant B = dets[dets.size() - 1];
+    // I. Form the corresponding alpha and beta orbitals
+    boost::tuple<SharedMatrix,SharedMatrix,SharedVector,double> calpha = corresponding_orbitals(A->Ca(),B->Ca(),A->nalphapi(),B->nalphapi());
+    boost::tuple<SharedMatrix,SharedMatrix,SharedVector,double> cbeta  = corresponding_orbitals(A->Cb(),B->Cb(),A->nbetapi(),B->nbetapi());
+    SharedMatrix ACa = calpha.get<0>();
+    SharedMatrix BCa = calpha.get<1>();
+    SharedMatrix ACb = cbeta.get<0>();
+    SharedMatrix BCb = cbeta.get<1>();
+    double detUValpha = calpha.get<3>();
+    double detUVbeta = cbeta.get<3>();
+    SharedVector s_a = calpha.get<2>();
+    SharedVector s_b = cbeta.get<2>();
+
+    // Compute the number of noncoincidences
+    double noncoincidence_threshold = 1.0e-9;
+
+    std::vector<boost::tuple<int,int,double> > Aalpha_nonc;
+    std::vector<boost::tuple<int,int,double> > Balpha_nonc;
+    double Sta = 1.0;
+    for (int h = 0; h < nirrep_; ++h){
+        // Count all the numerical noncoincidences
+        int nmin = std::min(A->nalphapi()[h],B->nalphapi()[h]);
+        for (int p = 0; p < nmin; ++p){
+            if(std::fabs(s_a->get(h,p)) >= noncoincidence_threshold){
+                Sta *= s_a->get(h,p);
+            }else{
+                Aalpha_nonc.push_back(boost::make_tuple(h,p,s_a->get(h,p)));
+                Balpha_nonc.push_back(boost::make_tuple(h,p,s_a->get(h,p)));
+            }
+        }
+        // Count all the symmetry noncoincidences
+        int nmax = std::max(A->nalphapi()[h],B->nalphapi()[h]);
+        bool AgeB = A->nalphapi()[h] >= B->nalphapi()[h] ? true : false;
+        for (int p = nmin; p < nmax; ++p){
+            if(AgeB){
+                Aalpha_nonc.push_back(boost::make_tuple(h,p,0.0));
+            }else{
+                Balpha_nonc.push_back(boost::make_tuple(h,p,0.0));
+            }
+        }
+    }
+
+    std::vector<boost::tuple<int,int,double> > Abeta_nonc;
+    std::vector<boost::tuple<int,int,double> > Bbeta_nonc;
+    double Stb = 1.0;
+    for (int h = 0; h < nirrep_; ++h){
+        // Count all the numerical noncoincidences
+        int nmin = std::min(A->nbetapi()[h],B->nbetapi()[h]);
+        for (int p = 0; p < nmin; ++p){
+            if(std::fabs(s_b->get(h,p)) >= noncoincidence_threshold){
+                Stb *= s_b->get(h,p);
+            }else{
+                Abeta_nonc.push_back(boost::make_tuple(h,p,s_b->get(h,p)));
+                Bbeta_nonc.push_back(boost::make_tuple(h,p,s_b->get(h,p)));
+            }
+        }
+        // Count all the symmetry noncoincidences
+        int nmax = std::max(A->nbetapi()[h],B->nbetapi()[h]);
+        bool AgeB = A->nbetapi()[h] >= B->nbetapi()[h] ? true : false;
+        for (int p = nmin; p < nmax; ++p){
+            if(AgeB){
+                Abeta_nonc.push_back(boost::make_tuple(h,p,0.0));
+            }else{
+                Bbeta_nonc.push_back(boost::make_tuple(h,p,0.0));
+            }
+        }
+    }
+    fprintf(outfile,"\n  Corresponding orbitals:\n");
+    fprintf(outfile,"  A(alpha): ");
+    for (size_t k = 0; k < Aalpha_nonc.size(); ++k){
+        int i_h = Aalpha_nonc[k].get<0>();
+        int i_mo = Aalpha_nonc[k].get<1>();
+        fprintf(outfile," (%1d,%2d)",i_h,i_mo);
+    }
+    fprintf(outfile,"\n  B(alpha): ");
+    for (size_t k = 0; k < Balpha_nonc.size(); ++k){
+        int i_h = Balpha_nonc[k].get<0>();
+        int i_mo = Balpha_nonc[k].get<1>();
+        fprintf(outfile," (%1d,%2d)",i_h,i_mo);
+    }
+    fprintf(outfile,"\n  s(alpha): ");
+    for (size_t k = 0; k < Balpha_nonc.size(); ++k){
+        double i_s = Balpha_nonc[k].get<2>();
+        fprintf(outfile," %6e",i_s);
+    }
+    fprintf(outfile,"\n  A(beta):  ");
+    for (size_t k = 0; k < Abeta_nonc.size(); ++k){
+        int i_h = Abeta_nonc[k].get<0>();
+        int i_mo = Abeta_nonc[k].get<1>();
+        fprintf(outfile," (%1d,%2d)",i_h,i_mo);
+    }
+    fprintf(outfile,"\n  B(beta):  ");
+    for (size_t k = 0; k < Bbeta_nonc.size(); ++k){
+        int i_h = Bbeta_nonc[k].get<0>();
+        int i_mo = Bbeta_nonc[k].get<1>();
+        fprintf(outfile," (%1d,%2d)",i_h,i_mo);
+    }
+    fprintf(outfile,"\n  s(beta):  ");
+    for (size_t k = 0; k < Bbeta_nonc.size(); ++k){
+        double i_s = Bbeta_nonc[k].get<2>();
+        fprintf(outfile," %6e",i_s);
+    }
+
+    double Stilde = Sta * Stb * detUValpha * detUVbeta;
+    fprintf(outfile,"\n  Stilde = %.6f\n",Stilde);
+
+
+    // Irreps and MO index of the alpha corresponding orbitals
+    int i_A_h = Aalpha_nonc[0].get<0>();
+    int i_A_mo = Aalpha_nonc[0].get<1>();
+
+    int i_B_h = Balpha_nonc[0].get<0>();
+    int i_B_mo = Balpha_nonc[0].get<1>();
+
+    int i_AB_h = i_A_h ^ i_B_h;
+
+    SharedMatrix trDa = SharedMatrix(new Matrix("Transition Density Matrix (alpha)",nsopi_,nsopi_,i_AB_h));
+    SharedMatrix trDb = SharedMatrix(new Matrix("Transition Density Matrix (alpha)",nsopi_,nsopi_));
+    trDb->zero();
+    double** ca = ACa->pointer(i_A_h);
+    double** cb = BCa->pointer(i_B_h);
+    double** da = trDa->pointer(i_AB_h);
+    for (int mu = 0; mu < nsopi_[i_A_h]; ++mu){
+        for (int nu = 0; nu < nsopi_[i_B_h]; ++nu){
+            da[nu][mu] = ca[mu][i_A_mo] * cb[nu][i_B_mo];
+        }
+    }
+    trDa->print();
+
+
+    // Contract the dipole moment operators with the pseudo-density matrix
+    boost::shared_ptr<OEProp> oe(new OEProp());
+    oe->set_title("SCF");
+    oe->add("DIPOLE");
+    oe->set_Da_so(trDa);
+    oe->set_Db_so(trDb);
+    if (WorldComm->me() == 0)
+        fprintf(outfile, "  ==> Transition dipole moment computed with OCDFT <==\n\n");
+    oe->compute();
 }
 
 //void UCKS::save_fock()
