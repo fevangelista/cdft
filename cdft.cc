@@ -124,10 +124,10 @@ PsiReturnType cdft(Options& options)
                 if ( options["MOLDEN_WRITE"].has_changed() ) {
                     boost::shared_ptr<MoldenWriter> molden(new MoldenWriter(new_scf));
                     std::string filename = get_writer_file_prefix() + "." + to_string(state) + ".molden";
-                    psi::scf::HF* hf = (psi::scf::HF*)ref_scf.get();
+                    psi::scf::HF* hf = (psi::scf::HF*)new_scf.get();
                     SharedVector occA = hf->occupation_a();
                     SharedVector occB = hf->occupation_b();
-                    molden->write(filename,ref_scf->Ca(),ref_scf->Cb(),ref_scf->epsilon_a(),ref_scf->epsilon_b(),occA,occB);
+                    molden->write(filename,new_scf->Ca(),new_scf->Cb(),new_scf->epsilon_a(),new_scf->epsilon_b(),occA,occB);
                 }
                 energies.push_back(new_energy);
                 ref_scf = new_scf;
@@ -158,10 +158,10 @@ PsiReturnType cdft(Options& options)
                     if ( options.get_bool("MOLDEN_WRITE") ) {
                        boost::shared_ptr<MoldenWriter> molden(new MoldenWriter(new_scf));
                        std::string filename = get_writer_file_prefix() + "." + to_string(h) + "." + to_string(state) + ".molden";
-                       psi::scf::HF* hf = (psi::scf::HF*)ref_scf.get();
+                       psi::scf::HF* hf = (psi::scf::HF*)new_scf.get();
                        SharedVector occA = hf->occupation_a();
                        SharedVector occB = hf->occupation_b();
-                       molden->write(filename,ref_scf->Ca(),ref_scf->Cb(),ref_scf->epsilon_a(),ref_scf->epsilon_b(),occA,occB);
+                       molden->write(filename,new_scf->Ca(),new_scf->Cb(),new_scf->epsilon_a(),new_scf->epsilon_b(),occA,occB);
                     }
                     energies.push_back(new_energy);
                     ref_scf = new_scf;
