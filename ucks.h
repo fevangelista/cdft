@@ -36,6 +36,10 @@ protected:
     bool do_project_out_holes;
     /// For multiple excited state project out previous particles
     bool do_project_out_particles;
+    /// For multiple excited state project out previous holes
+    bool do_save_holes;
+    /// For multiple excited state project out previous particles
+    bool do_save_particles;
     /// Ground state energy
     double ground_state_energy;
     /// Ground state symmetry
@@ -108,6 +112,8 @@ protected:
     Dimension saved_naholepi_;
     /// The number of alpha particles saved from previous computations
     Dimension saved_napartpi_;
+    /// The number of alpha holes to project out
+    Dimension project_naholepi_;
     /// A dimension vector with all zeros
     Dimension zero_dim_;
 

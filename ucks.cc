@@ -182,17 +182,7 @@ void UCKS::init_excitation(boost::shared_ptr<Wavefunction> ref_scf)
         do_holes = false;
     }
 
-    std::string project_out = KS::options_.get_str("CDFT_PROJECT_OUT");
-    do_project_out_holes = false;
-    do_project_out_particles = false;
-    if (project_out == "H"){
-        do_project_out_holes = true;
-    }else if (project_out == "P"){
-        do_project_out_particles = true;
-    }else if (project_out == "HP"){
-        do_project_out_holes = true;
-        do_project_out_particles = true;
-    }
+
 
     // Save the reference state MOs and occupation numbers
     fprintf(outfile,"  Saving the reference orbitals for an excited state computation\n");
@@ -212,13 +202,14 @@ void UCKS::init_excitation(boost::shared_ptr<Wavefunction> ref_scf)
     // Grab the saved number of alpha holes/particles
     saved_naholepi_ = ucks_ptr->naholepi_;
     saved_napartpi_ = ucks_ptr->napartpi_;
+    project_naholepi_ = Dimension(nirrep_,"project_naholepi_");;
     if (state_ == 1){
         dets.push_back(ucks_ptr->dets[0]);
         saved_Ch_ = SharedMatrix(new Matrix("Ch_",nsopi_,gs_nalphapi_));
         saved_Cp_ = SharedMatrix(new Matrix("Cp_",nsopi_,gs_navirpi_));
     }else{
         dets = ucks_ptr->dets;
-        saved_Ch_ = ucks_ptr->Ch_;
+        saved_Ch_ = ucks_ptr->saved_Ch_;
         saved_Cp_ = ucks_ptr->Cp_;
     }
 
@@ -236,7 +227,61 @@ void UCKS::init_excitation(boost::shared_ptr<Wavefunction> ref_scf)
     moFeffa_ = factory_->create_shared_matrix("MO alpha Feff");
     moFeffb_ = factory_->create_shared_matrix("MO beta Feff");
 
-
+    std::string project_out = KS::options_.get_str("CDFT_PROJECT_OUT");
+    do_project_out_holes = false;
+    do_project_out_particles = false;
+    if (project_out == "H"){
+        do_project_out_holes = true;
+        do_save_holes = true;
+    }else if (project_out == "P"){
+        do_project_out_particles = true;
+        do_save_particles = true;
+    }else if (project_out == "HP"){
+        do_project_out_holes = true;
+        do_project_out_particles = true;
+        do_save_particles = true;
+        do_save_holes = true;
+        fprintf(outfile,"\n  STATE = %d",state_);
+        // Check if we computed enough hole/particles
+        if (state_ > 0){
+            project_naholepi_[0] = (state_-1)/ KS::options_.get_int("CDFT_NUM_PROJECT_OUT"); // TODO generalize to symmetry
+            if (state_ % KS::options_.get_int("CDFT_NUM_PROJECT_OUT") == 1){
+                // Compute a new particle and save it, project out the holes but don't save it
+                fprintf(outfile,"\n  Save the first hole in the series.  Compute a new particle and save it.");
+//                saved_naholepi_[0] = (state_-1)/ KS::options_.get_int("CDFT_NUM_PROJECT_OUT");
+                fprintf(outfile,"\n  Saved holes %d",saved_naholepi_[0]);
+                do_project_out_holes = true;
+                do_save_particles = true;
+                do_save_holes = true;
+                for (int h = 0; h < nirrep_; ++h) saved_napartpi_[h] = 0;
+                Cp_->zero();
+            }else {
+                // Reset the cycle, compute a new hole and zero the previous particles
+                do_save_particles = true;
+                do_save_holes = false;
+                do_project_out_holes = true;
+//                saved_naholepi_[0] = (state_-1)/ KS::options_.get_int("CDFT_NUM_PROJECT_OUT");
+                fprintf(outfile,"\n  Compute a new particle and save it, project out the holes but don't save it.  Saved holes %d",saved_naholepi_[0]);
+            }
+//                if (state_ % KS::options_.get_int("CDFT_NUM_PROJECT_OUT") == 0){
+//                    // Compute a new particle and save it, project out the holes but don't save it
+//                    fprintf(outfile,"\n  Compute a new particle and save it, project out the holes but don't save it");
+//                    do_save_particles = true;
+//                    do_save_holes = false;
+//                }else {
+//                    // Reset the cycle, compute a new hole and zero the previous particles
+//                    fprintf(outfile,"\n  Reset the cycle, compute a new hole and zero the previous particles");
+//                    do_save_particles = true;
+//                    do_save_holes = true;
+//                }
+        }
+    }
+    fprintf(outfile,"\n  ");
+    saved_naholepi_.print();
+    fprintf(outfile,"\n  ");
+    saved_napartpi_.print();
+    fprintf(outfile,"\n  ");
+    project_naholepi_.print();
 }
 
 UCKS::~UCKS()
@@ -548,7 +593,11 @@ void UCKS::compute_holes()
 
     // Form the projector 1 - Ph = 1 - (Ch^T S Ca_gs)^T Ch^T S Ca_gs
     TempMatrix->zero();
-    TempMatrix->gemm(false,true,1.0,saved_Ch_,saved_Ch_,0.0);
+    SharedMatrix project_Ch(new Matrix("project_Ch_",nsopi_,gs_nalphapi_));
+    // Copy only the orbitals that need to be projected out
+    copy_subblock(saved_Ch_,project_Ch,nsopi_,project_naholepi_,true);
+
+    TempMatrix->gemm(false,true,1.0,project_Ch,project_Ch,0.0);
     TempMatrix->transform(S_);
     TempMatrix->transform(dets[0]->Ca());
     SharedMatrix Ph = SharedMatrix(new Matrix("Ph",gs_nalphapi_,gs_nalphapi_));
@@ -563,6 +612,7 @@ void UCKS::compute_holes()
 
     // Diagonalize the occ block
     PoFaPo_->diagonalize(Ua_o_,lambda_a_o_);
+//    lambda_a_o_->print();
 }
 
 void UCKS::compute_particles()
@@ -571,6 +621,9 @@ void UCKS::compute_particles()
         // Form the projector Ca Ca^T S Ca_gs
         TempMatrix->zero();
         // Copy Cp
+        fprintf(outfile,"\n  DEBUG -> \n");
+        napartpi_.print();
+
         copy_block(Cp_,1.0,TempMatrix,0.0,nsopi_,napartpi_);
         // Copy the virtual block of Ca
         copy_block(Ca_,1.0,TempMatrix,0.0,nsopi_,nmopi_ - nalphapi_,zero_dim_,nalphapi_,zero_dim_,napartpi_);
@@ -590,7 +643,11 @@ void UCKS::compute_particles()
 
     // Form the projector Pp = 1 - (Cp^T S Ca_gs)^T Cp^T S Ca_gs
     TempMatrix->zero();
-    TempMatrix->gemm(false,true,1.0,saved_Cp_,saved_Cp_,0.0);
+    SharedMatrix project_Cp(new Matrix("project_Cp_",nsopi_,gs_navirpi_));
+    // Copy only the orbitals that need to be projected out
+    copy_subblock(saved_Cp_,project_Cp,nsopi_,saved_napartpi_,true);
+//    project_Cp->print();
+    TempMatrix->gemm(false,true,1.0,project_Cp,project_Cp,0.0);
     TempMatrix->transform(S_);
     TempMatrix->transform(dets[0]->Ca());
     SharedMatrix Pp = SharedMatrix(new Matrix("Pp",gs_navirpi_,gs_navirpi_));
@@ -605,6 +662,7 @@ void UCKS::compute_particles()
 
     // Diagonalize the vir block
     PvFaPv_->diagonalize(Ua_v_,lambda_a_v_);
+//    lambda_a_v_->print();
 }
 
 void UCKS::find_ee_occupation(SharedVector lambda_o,SharedVector lambda_v)
@@ -632,7 +690,10 @@ void UCKS::find_ee_occupation(SharedVector lambda_o,SharedVector lambda_v)
                     double e_hp = do_core_excitation ? (e_p + e_h) : (e_p - e_h);
                     int symm = occ_h ^ vir_h ^ ground_state_symmetry_;
                     if(not do_symmetry or (symm == excited_state_symmetry_)){ // Test for symmetry
-                        sorted_hp_pairs.push_back(boost::make_tuple(e_hp,occ_h,i,e_h,vir_h,a,e_p));  // N.B. shifted wrt to full indexing
+                        // Make sure we are not adding excitations to holes/particles that have been projected out
+                        if (std::fabs(e_h) > 1.0e-6 and std::fabs(e_p) > 1.0e-6){
+                            sorted_hp_pairs.push_back(boost::make_tuple(e_hp,occ_h,i,e_h,vir_h,a,e_p));  // N.B. shifted wrt to full indexing
+                        }
                     }
                 }
             }
@@ -798,15 +859,33 @@ void UCKS::diagonalize_F_spectator_relaxed()
     if(do_holes){
         TempMatrix->gemm(false,true,1.0,Ch_,Ch_,1.0);
         if(do_project_out_holes){
-            TempMatrix->gemm(false,true,1.0,saved_Ch_,saved_Ch_,1.0);
+            SharedMatrix project_Ch(new Matrix("project_Ch_",nsopi_,gs_nalphapi_));
+            // Copy only the orbitals that need to be projected out
+//            copy_subblock(saved_Ch_,project_Ch,nsopi_,saved_naholepi_,true);
+            copy_subblock(saved_Ch_,project_Ch,nsopi_,project_naholepi_,true);
+//            Dimension one_offset_(nirrep_,"Offset");
+
+////            The problem is here.
+//            one_offset_[0] = 1;
+//            Dimension saved_naholepi_min_one_(nirrep_,"Offset");
+//            saved_naholepi_min_one_[0] = saved_naholepi_[0] - 1;
+//            copy_block(saved_Ch_,1.0,project_Ch,0.0,nsopi_,saved_naholepi_,
+//                                  zero_dim_,one_offset_,
+//                                  zero_dim_,zero_dim_);
+//            saved_Ch_->print();
+//            project_Ch->print();
+//            TempMatrix->gemm(false,true,1.0,saved_Ch_,saved_Ch_,1.0);
+            TempMatrix->gemm(false,true,1.0,project_Ch,project_Ch,1.0);
         }
     }
     if(do_parts){
         TempMatrix->gemm(false,true,1.0,Cp_,Cp_,1.0);
         if(do_project_out_particles){
+            fprintf(outfile,"\n  Projecting out particles:");
             TempMatrix->gemm(false,true,1.0,saved_Cp_,saved_Cp_,1.0);
         }
     }
+
     TempMatrix->transform(S_);
     TempMatrix->transform(dets[0]->Ca());
     TempMatrix2->identity();
@@ -820,6 +899,9 @@ void UCKS::diagonalize_F_spectator_relaxed()
     TempMatrix->diagonalize(TempMatrix2,epsilon_a_);
     TempMatrix->zero();
     TempMatrix->gemm(false,false,1.0,dets[0]->Ca(),TempMatrix2,0.0);
+
+//    fprintf(outfile,"\n  Epsilons for spectators");
+//    epsilon_a_->print();
     Ca_->copy(TempMatrix);
 }
 
@@ -853,7 +935,10 @@ void UCKS::sort_ee_mos()
     // want to make sure that the hole and particle MO appear where they should, that is
     // |(particles) (occupied spectators) | (virtual spectators) (hole)>
     TempMatrix->zero();
-    TempVector->zero();
+//    TempVector->zero();
+    SharedVector temp_epsilon_a_(new Vector("e_a",nsopi_));
+
+//    saved_Ch_->print();
     for (int h = 0; h < nirrep_; ++h){
         int nso = nsopi_[h];
         int nmo = nmopi_[h];
@@ -867,46 +952,68 @@ void UCKS::sort_ee_mos()
         double** saved_Ch_h = saved_Ch_->pointer(h);
 
         int m = 0;
-        // First place the particles
+        // First place the (previously) projected holes and the particles
         if(do_project_out_holes){
-            for (int p = 0; p < saved_naholepi_[h]; ++p){
+            for (int p = 0; p < project_naholepi_[h]; ++p){
+                temp_epsilon_a_->set(h,m,-200.0);
                 for (int q = 0; q < nso; ++q){
                     T_h[q][m] = saved_Ch_h[q][p];
                 }
                 m += 1;
             }
+            fprintf(outfile,"\n %d saved alpha holes",saved_naholepi_[h]);
         }
         if(do_parts){
             for (int p = 0; p < napartpi_[h]; ++p){
+                temp_epsilon_a_->set(h,m,-100.0);
                 for (int q = 0; q < nso; ++q){
                     T_h[q][m] = Cp_h[q][p];
                 }
                 m += 1;
             }
+            fprintf(outfile,"\n %d particles",napartpi_[h]);
         }
         // Then the spectators
+        int nspect = 0;
         for (int p = 0; p < nmo; ++p){
             // Is this MO a hole or a particle?
             if(std::fabs(epsilon_a_->get(h,p)) > 1.0e-6){
-                TempVector->set(h,m,epsilon_a_->get(h,p));
+                temp_epsilon_a_->set(h,m,epsilon_a_->get(h,p));
                 for (int q = 0; q < nso; ++q){
                     T_h[q][m] = C_h[q][p];
                 }
                 m += 1;
+                nspect += 1;
             }
         }
-        // Then the holes
+        fprintf(outfile,"\n %d spectators",nspect);
+        // Then the (previously) projected particles and the holes
         if(do_holes){
             for (int p = 0; p < naholepi_[h]; ++p){
+                temp_epsilon_a_->set(h,m,100.0);
                 for (int q = 0; q < nso; ++q){
                     T_h[q][m] = Ch_h[q][p];
                 }
                 m += 1;
             }
+            fprintf(outfile,"\n %d holes",naholepi_[h]);
         }
+        if(do_project_out_particles){
+            for (int p = 0; p < saved_napartpi_[h]; ++p){
+                temp_epsilon_a_->set(h,m,200.0);
+                for (int q = 0; q < nso; ++q){
+                    T_h[q][m] = saved_Cp_h[q][p];
+                }
+                m += 1;
+            }
+            fprintf(outfile,"\n %d saved alpha particles",saved_napartpi_[h]);
+        }
+
+        fprintf(outfile,"\n Irrep %d has %d mos (%d,%d)",h,m,nsopi_[h],nmopi_[h]);
+        fflush(outfile);
     }
     Ca_->copy(TempMatrix);
-    epsilon_a_->copy(TempVector.get());
+    epsilon_a_->copy(*temp_epsilon_a_);
 }
 
 void UCKS::diagonalize_F_spectator_unrelaxed()
@@ -1485,17 +1592,29 @@ void UCKS::save_information()
             compute_S_plus_triplet_correction();
         }
 
-        if (do_project_out_holes){
+        if (do_save_holes){
             // Add the saved holes to the Ch_ matrix
+//            saved_naholepi_.print();
+//            for (int h = 0; h < nirrep_; ++h){
+//                for (int i = 0; i < saved_naholepi_[h]; ++i){
+//                    Ch_->set_column(h,naholepi_[h] + i,saved_Ch_->get_column(h,i));
+//                }
+//            }
+//            naholepi_ += saved_naholepi_;
+
+            // Flipped things here.  The information about previous holes is passed via saved_Ch_
+            saved_naholepi_.print();
             for (int h = 0; h < nirrep_; ++h){
-                for (int i = 0; i < saved_naholepi_[h]; ++i){
-                    Ch_->set_column(h,naholepi_[h] + i,saved_Ch_->get_column(h,i));
+                for (int i = 0; i < naholepi_[h]; ++i){
+                    saved_Ch_->set_column(h,saved_naholepi_[h] + i,Ch_->get_column(h,i));
                 }
             }
-            naholepi_ += saved_naholepi_;
+            saved_naholepi_ += naholepi_;
+
         }
-        if (do_project_out_particles){
+        if (do_save_particles){
             // Add the saved particles to the Cp_ matrix
+            saved_napartpi_.print();
             for (int h = 0; h < nirrep_; ++h){
                 for (int i = 0; i < saved_napartpi_[h]; ++i){
                     Cp_->set_column(h,napartpi_[h] + i,saved_Cp_->get_column(h,i));
