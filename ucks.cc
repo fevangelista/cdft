@@ -200,8 +200,6 @@ void UCKS::init_excitation(boost::shared_ptr<Wavefunction> ref_scf)
     gs_nbvirpi_  = nmopi_ - gs_nbetapi_;
 
     // Grab the saved number of alpha holes/particles
-    saved_naholepi_ = ucks_ptr->naholepi_;
-    saved_napartpi_ = ucks_ptr->napartpi_;
     project_naholepi_ = Dimension(nirrep_,"project_naholepi_");;
     if (state_ == 1){
         dets.push_back(ucks_ptr->dets[0]);
@@ -211,6 +209,8 @@ void UCKS::init_excitation(boost::shared_ptr<Wavefunction> ref_scf)
         dets = ucks_ptr->dets;
         saved_Ch_ = ucks_ptr->saved_Ch_;
         saved_Cp_ = ucks_ptr->Cp_;
+        saved_naholepi_ = ucks_ptr->naholepi_;
+        saved_napartpi_ = ucks_ptr->napartpi_;
     }
 
     PoFaPo_ = SharedMatrix(new Matrix("PoFPo",gs_nalphapi_,gs_nalphapi_));
