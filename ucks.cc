@@ -209,7 +209,7 @@ void UCKS::init_excitation(boost::shared_ptr<Wavefunction> ref_scf)
         dets = ucks_ptr->dets;
         saved_Ch_ = ucks_ptr->saved_Ch_;
         saved_Cp_ = ucks_ptr->Cp_;
-        saved_naholepi_ = ucks_ptr->naholepi_;
+        saved_naholepi_ = ucks_ptr->saved_naholepi_;
         saved_napartpi_ = ucks_ptr->napartpi_;
     }
 
@@ -255,6 +255,7 @@ void UCKS::init_excitation(boost::shared_ptr<Wavefunction> ref_scf)
                 do_save_holes = true;
                 for (int h = 0; h < nirrep_; ++h) saved_napartpi_[h] = 0;
                 Cp_->zero();
+                saved_Cp_->zero();
             }else {
                 // Reset the cycle, compute a new hole and zero the previous particles
                 do_save_particles = true;
@@ -593,7 +594,7 @@ void UCKS::compute_holes()
 
     // Form the projector 1 - Ph = 1 - (Ch^T S Ca_gs)^T Ch^T S Ca_gs
     TempMatrix->zero();
-    SharedMatrix project_Ch(new Matrix("project_Ch_",nsopi_,gs_nalphapi_));
+    SharedMatrix project_Ch(new Matrix("project_Ch_",nsopi_,project_naholepi_));
     // Copy only the orbitals that need to be projected out
     copy_subblock(saved_Ch_,project_Ch,nsopi_,project_naholepi_,true);
 
