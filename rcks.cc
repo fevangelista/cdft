@@ -1,4 +1,4 @@
-#include <rcks.h>
+#include "rcks.h"
 #include <libmints/view.h>
 #include <libmints/mints.h>
 #include <libfock/apps.h>
@@ -16,21 +16,21 @@ namespace psi{ namespace scf{
 RCKS::RCKS(Options& options, boost::shared_ptr<PSIO> psio)
     : RKS(options, psio), Vc(0.0), optimize_Vc(false), gradW_threshold_(1.0e-9),nW_opt(0), old_gradW(0.0), BFGS_hessW(0.0)
 {
-    fprintf(outfile,"\n  ==> Constrained DFT (RCKS) <==\n\n");
+    outfile->Printf("\n  ==> Constrained DFT (RCKS) <==\n\n");
 
     Vc = options.get_double("VC");
     optimize_Vc = options.get_bool("OPTIMIZE_VC");
 
     if(optimize_Vc){
-        fprintf(outfile,"  The constraint will be optimized.\n");
+        outfile->Printf("  The constraint will be optimized.\n");
     }else{
-        fprintf(outfile,"  The Lagrange multiplier for the constraint will be fixed: Vc = %f .\n",Vc);
+        outfile->Printf("  The Lagrange multiplier for the constraint will be fixed: Vc = %f .\n",Vc);
     }
 
     gradW_threshold_ = options.get_double("W_CONVERGENCE");
-    fprintf(outfile,"  gradW threshold = :%9.2e\n",gradW_threshold_);
+    outfile->Printf("  gradW threshold = :%9.2e\n",gradW_threshold_);
     nfrag = basisset()->molecule()->nfragments();
-    fprintf(outfile,"  Number of fragments: %d\n",nfrag);
+    outfile->Printf("  Number of fragments: %d\n",nfrag);
 
     // Check the option CHARGE, if it is defined use it to define the constrained charges
     int charge_size = options["CHARGE"].size();
@@ -52,11 +52,11 @@ RCKS::RCKS(Options& options, boost::shared_ptr<PSIO> psio)
     save_H_ = true;
 
     for (int f = 0; f < nfrag; ++f){
-        fprintf(outfile,"  Fragment %d: constrained charge = %f .\n",f,constrained_charges[f]);
+        outfile->Printf("  Fragment %d: constrained charge = %f .\n",f,constrained_charges[f]);
     }
     Nc  = frag_nuclear_charge[0] - constrained_charges[0];
     Nc -= frag_nuclear_charge[1] - constrained_charges[1];
-    fprintf(outfile,"  Constraining Tr[w rho] = Nc = %f .\n\n",Nc);
+    outfile->Printf("  Constraining Tr[w rho] = Nc = %f .\n\n",Nc);
 }
 
 
@@ -151,10 +151,10 @@ void RCKS::form_F()
     gradient_of_W();
     hessian_of_W();
 
-    fprintf(outfile,"   @CDFT                Vc = %.7f  gradW = %.7f  hessW = %.7f\n",Vc,gradW,hessW);
+    outfile->Printf("   @CDFT                Vc = %.7f  gradW = %.7f  hessW = %.7f\n",Vc,gradW,hessW);
 
     if (debug_) {
-        Fa_->print(outfile);
+        Fa_->print();
         J_->print();
         K_->print();
         G_->print();
@@ -194,13 +194,13 @@ double RCKS::compute_E()
     Etotal += dashD_E;
 
     if (debug_) {
-        fprintf(outfile, "   => Energetics <=\n\n");
-        fprintf(outfile, "    Nuclear Repulsion Energy = %24.14f\n", nuclearrep_);
-        fprintf(outfile, "    One-Electron Energy =      %24.14f\n", one_electron_E);
-        fprintf(outfile, "    Coulomb Energy =           %24.14f\n", coulomb_E);
-        fprintf(outfile, "    Hybrid Exchange Energy =   %24.14f\n", exchange_E);
-        fprintf(outfile, "    XC Functional Energy =     %24.14f\n", XC_E);
-        fprintf(outfile, "    -D Energy =                %24.14f\n\n", dashD_E);
+        outfile->Printf( "   => Energetics <=\n\n");
+        outfile->Printf( "    Nuclear Repulsion Energy = %24.14f\n", nuclearrep_);
+        outfile->Printf( "    One-Electron Energy =      %24.14f\n", one_electron_E);
+        outfile->Printf( "    Coulomb Energy =           %24.14f\n", coulomb_E);
+        outfile->Printf( "    Hybrid Exchange Energy =   %24.14f\n", exchange_E);
+        outfile->Printf( "    XC Functional Energy =     %24.14f\n", XC_E);
+        outfile->Printf( "    -D Energy =                %24.14f\n\n", dashD_E);
     }
 
     return Etotal;
@@ -233,7 +233,7 @@ void RCKS::gradient_of_W()
 //    gradW  = 2.0 * D_->vector_dot(W_so[0]) - (frag_nuclear_charge[0] - constrained_charges[0]);
 //    gradW -= 2.0 * D_->vector_dot(W_so[1]) - (frag_nuclear_charge[1] - constrained_charges[1]);
     gradW = 2.0 * D_->vector_dot(W_tot) - Nc;
-    fprintf(outfile,"  gradW(1) = %.9f\n",gradW);
+    outfile->Printf("  gradW(1) = %.9f\n",gradW);
 
     // Transform W_tot to the MO basis
     Temp->transform(W_tot,Ca_);
@@ -285,7 +285,7 @@ void RCKS::hessian_of_W()
         double* eps = epsilon_a_->pointer(h);
         for (int i = 0; i < nocc; ++i){
             for (int a = nocc; a < nmo; ++a){
-                //fprintf(outfile,"  -> (%d,%d): (%f)^2 / (%f - %f) = %f\n",i,a,Temp_h[a][i],eps[i],eps[a],std::pow(Temp_h[a][i],2.0) /  (eps[i] - eps[a]));
+                //outfile->Printf("  -> (%d,%d): (%f)^2 / (%f - %f) = %f\n",i,a,Temp_h[a][i],eps[i],eps[a],std::pow(Temp_h[a][i],2.0) /  (eps[i] - eps[a]));
                 hessW += Temp_h[a][i] * Temp_h[a][i] /  (eps[i] - eps[a]);
             }
         }
@@ -296,7 +296,7 @@ void RCKS::hessian_of_W()
 /// Optimize the Lagrange multiplier
 void RCKS::constraint_optimization()
 {   
-    fprintf(outfile, "  ==> Constraint optimization <==\n");
+    outfile->Printf( "  ==> Constraint optimization <==\n");
     if(psi::scf::KS::options_.get_str("W_ALGORITHM") == "NEWTON"){
         // Optimize Vc once you have a good gradient and the gradient is not converged
         if (std::fabs(gradW_mo_resp / gradW) < 0.1 and std::fabs(gradW) > gradW_threshold_){
@@ -310,13 +310,13 @@ void RCKS::constraint_optimization()
                 if(std::fabs(new_Vc - Vc) > threshold){
                     new_Vc = Vc + (new_Vc > Vc ? threshold : -threshold);
                 }
-                fprintf(outfile, "  hessW = %f\n",hessW);
+                outfile->Printf( "  hessW = %f\n",hessW);
                 Vc = new_Vc;
             }else{
                 if(std::fabs(Vc - old_Vc) > 1.0e-3){
                     // We landed somewhere else, update the Hessian
                     BFGS_hessW = (gradW - old_gradW) / (Vc - old_Vc);
-                    fprintf(outfile, "  BFGS_hessW = %f\n",BFGS_hessW);
+                    outfile->Printf( "  BFGS_hessW = %f\n",BFGS_hessW);
                     old_Vc = Vc;
                     old_gradW = gradW;
                 }
@@ -356,11 +356,11 @@ void RCKS::constraint_optimization()
 
 void RCKS::Lowdin2()
 {
-    fprintf(outfile, "  ==> Lowdin Charges <==\n\n");
+    outfile->Printf( "  ==> Lowdin Charges <==\n\n");
     for (int f = 0; f < nfrag; ++f){
         double Q_f = -2.0 * D_->vector_dot(W_so[f]);
         Q_f += frag_nuclear_charge[f];
-        fprintf(outfile, "  Fragment %d: charge = %.6f\n",f,Q_f);
+        outfile->Printf( "  Fragment %d: charge = %.6f\n",f,Q_f);
     }
 }
 
@@ -402,7 +402,7 @@ void RCKS::Lowdin()
     Qa->print();
 
     int nfrag = mol->nfragments();
-    fprintf(outfile, "\n  There are %d fragments in this molecule\n", nfrag);
+    outfile->Printf( "\n  There are %d fragments in this molecule\n", nfrag);
     int a = 0;
     for (int f = 0; f < nfrag; ++f){
         std::vector<int> flist;
@@ -414,7 +414,7 @@ void RCKS::Lowdin()
             fcharge += Qa_pointer[a];
             ++a;
           }
-        fprintf(outfile,"  Fragment %d, charge = %.8f, constrained charge = %.8f:\n",f,fcharge,double(frag->molecular_charge()));
+        outfile->Printf("  Fragment %d, charge = %.8f, constrained charge = %.8f:\n",f,fcharge,double(frag->molecular_charge()));
     }
 }
 

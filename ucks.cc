@@ -1,4 +1,4 @@
-#include <ucks.h>
+#include "ucks.h"
 #include <physconst.h>
 #include <libmints/view.h>
 #include <libmints/mints.h>
@@ -16,9 +16,9 @@
 //#include <libscf_solver/omegafunctors.h>
 
 #define DEBUG_THIS2(EXP) \
-    fprintf(outfile,"\n  Starting " #EXP " ..."); fflush(outfile); \
+    outfile->Printf("\n  Starting " #EXP " ..."); fflush(outfile); \
     EXP \
-    fprintf(outfile,"  done."); fflush(outfile); \
+    outfile->Printf("  done."); fflush(outfile); \
 
 
 using namespace psi;
@@ -83,7 +83,7 @@ UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<Wav
 
 void UCKS::init()
 {
-    fprintf(outfile,"\n  ==> Constrained DFT (UCKS) <==\n\n");
+    outfile->Printf("\n  ==> Constrained DFT (UCKS) <==\n\n");
 
 
     optimize_Vc = false;
@@ -91,11 +91,11 @@ void UCKS::init()
         KS::options_.get_bool("OPTIMIZE_VC");
     }
     gradW_threshold_ = KS::options_.get_double("W_CONVERGENCE");
-    fprintf(outfile,"  gradW threshold = :%9.2e\n",gradW_threshold_);
+    outfile->Printf("  gradW threshold = :%9.2e\n",gradW_threshold_);
     nfrag = basisset()->molecule()->nfragments();
-    fprintf(outfile,"  Number of fragments: %d\n",nfrag);
+    outfile->Printf("  Number of fragments: %d\n",nfrag);
     level_shift_ = KS::options_.get_double("LEVEL_SHIFT");
-    fprintf(outfile,"  Level shift: %f\n",level_shift_);
+    outfile->Printf("  Level shift: %f\n",level_shift_);
 
     build_W_frag();
 
@@ -106,9 +106,9 @@ void UCKS::init()
             double Nc = frag_nuclear_charge[f] - constrained_charge;
             SharedConstraint constraint(new Constraint(W_frag[f],Nc,1.0,1.0,"charge(" + to_string(f) + ")"));
             constraints.push_back(constraint);
-            fprintf(outfile,"  Fragment %d: constrained charge = %f .\n",f,constrained_charge);
+            outfile->Printf("  Fragment %d: constrained charge = %f .\n",f,constrained_charge);
         }else{
-            fprintf(outfile,"  Fragment %d: no charge constraint specified .\n",f);
+            outfile->Printf("  Fragment %d: no charge constraint specified .\n",f);
         }
     }
     // Check the option SPIN, if it is defined use it to define the constrained spins, "-" skips the constraint
@@ -118,9 +118,9 @@ void UCKS::init()
             double Nc = constrained_spin;
             SharedConstraint constraint(new Constraint(W_frag[f],Nc,0.5,-0.5,"spin(" + to_string(f) + ")"));
             constraints.push_back(constraint);
-            fprintf(outfile,"  Fragment %d: constrained spin   = %f .\n",f,constrained_spin);
+            outfile->Printf("  Fragment %d: constrained spin   = %f .\n",f,constrained_spin);
         }else{
-            fprintf(outfile,"  Fragment %d: no spin constraint specified .\n",f);
+            outfile->Printf("  Fragment %d: no spin constraint specified .\n",f);
         }
     }
 
@@ -153,11 +153,11 @@ void UCKS::init()
         }else{
             Vc->set(f,0.0);
         }
-        fprintf(outfile,"  The Lagrange multiplier for constraint %d will be initialized to Vc = %f .\n",f,KS::options_["VC"][f].to_double());
+        outfile->Printf("  The Lagrange multiplier for constraint %d will be initialized to Vc = %f .\n",f,KS::options_["VC"][f].to_double());
     }
 
     if(optimize_Vc){
-        fprintf(outfile,"  The constraint(s) will be optimized.\n");
+        outfile->Printf("  The constraint(s) will be optimized.\n");
     }
     save_H_ = true;
 }
@@ -185,7 +185,7 @@ void UCKS::init_excitation(boost::shared_ptr<Wavefunction> ref_scf)
 
 
     // Save the reference state MOs and occupation numbers
-    fprintf(outfile,"  Saving the reference orbitals for an excited state computation\n");
+    outfile->Printf("  Saving the reference orbitals for an excited state computation\n");
     UCKS* ucks_ptr = dynamic_cast<UCKS*>(ref_scf.get());
 
     gs_Fa_ = ucks_ptr->gs_Fa_;
@@ -241,15 +241,15 @@ void UCKS::init_excitation(boost::shared_ptr<Wavefunction> ref_scf)
         do_project_out_particles = true;
         do_save_particles = true;
         do_save_holes = true;
-        fprintf(outfile,"\n  STATE = %d",state_);
+        outfile->Printf("\n  STATE = %d",state_);
         // Check if we computed enough hole/particles
         if (state_ > 0){
             project_naholepi_[0] = (state_-1)/ KS::options_.get_int("CDFT_NUM_PROJECT_OUT"); // TODO generalize to symmetry
             if (state_ % KS::options_.get_int("CDFT_NUM_PROJECT_OUT") == 1){
                 // Compute a new particle and save it, project out the holes but don't save it
-                fprintf(outfile,"\n  Save the first hole in the series.  Compute a new particle and save it.");
+                outfile->Printf("\n  Save the first hole in the series.  Compute a new particle and save it.");
 //                saved_naholepi_[0] = (state_-1)/ KS::options_.get_int("CDFT_NUM_PROJECT_OUT");
-                fprintf(outfile,"\n  Saved holes %d",saved_naholepi_[0]);
+                outfile->Printf("\n  Saved holes %d",saved_naholepi_[0]);
                 do_project_out_holes = true;
                 do_save_particles = true;
                 do_save_holes = true;
@@ -262,26 +262,26 @@ void UCKS::init_excitation(boost::shared_ptr<Wavefunction> ref_scf)
                 do_save_holes = false;
                 do_project_out_holes = true;
 //                saved_naholepi_[0] = (state_-1)/ KS::options_.get_int("CDFT_NUM_PROJECT_OUT");
-                fprintf(outfile,"\n  Compute a new particle and save it, project out the holes but don't save it.  Saved holes %d",saved_naholepi_[0]);
+                outfile->Printf("\n  Compute a new particle and save it, project out the holes but don't save it.  Saved holes %d",saved_naholepi_[0]);
             }
 //                if (state_ % KS::options_.get_int("CDFT_NUM_PROJECT_OUT") == 0){
 //                    // Compute a new particle and save it, project out the holes but don't save it
-//                    fprintf(outfile,"\n  Compute a new particle and save it, project out the holes but don't save it");
+//                    outfile->Printf("\n  Compute a new particle and save it, project out the holes but don't save it");
 //                    do_save_particles = true;
 //                    do_save_holes = false;
 //                }else {
 //                    // Reset the cycle, compute a new hole and zero the previous particles
-//                    fprintf(outfile,"\n  Reset the cycle, compute a new hole and zero the previous particles");
+//                    outfile->Printf("\n  Reset the cycle, compute a new hole and zero the previous particles");
 //                    do_save_particles = true;
 //                    do_save_holes = true;
 //                }
         }
     }
-    fprintf(outfile,"\n  ");
+    outfile->Printf("\n  ");
     saved_naholepi_.print();
-    fprintf(outfile,"\n  ");
+    outfile->Printf("\n  ");
     saved_napartpi_.print();
-    fprintf(outfile,"\n  ");
+    outfile->Printf("\n  ");
     project_naholepi_.print();
 }
 
@@ -442,11 +442,11 @@ void UCKS::form_G()
     }
 
     if (debug_ > 2) {
-        J_->print(outfile);
-        Ka_->print(outfile);
-        Kb_->print(outfile);
-        wKa_->print(outfile);
-        wKb_->print(outfile);
+        J_->print();
+        Ka_->print();
+        Kb_->print();
+        wKa_->print();
+        wKb_->print();
         Va_->print();
         Vb_->print();
     }
@@ -515,8 +515,8 @@ void UCKS::form_F()
 
 
     if (debug_) {
-        Fa_->print(outfile);
-        Fb_->print(outfile);
+        Fa_->print();
+        Fb_->print();
     }
 }
 
@@ -530,8 +530,8 @@ void UCKS::form_C()
             int np = KS::options_["CDFT_BREAK_SYMMETRY"][0].to_integer();
             int nq = KS::options_["CDFT_BREAK_SYMMETRY"][1].to_integer();
             double angle = KS::options_["CDFT_BREAK_SYMMETRY"][2].to_double();
-            fprintf(outfile,"\n  Mixing the alpha orbitals %d and %d by %f.1 degrees\n\n",np,nq,angle);
-            fflush(outfile);
+            outfile->Printf("\n  Mixing the alpha orbitals %d and %d by %f.1 degrees\n\n",np,nq,angle);
+            outfile->Flush();
             Ca_->rotate_columns(0,np-1,nq-1,pc_pi * angle / 180.0);
             Cb_->rotate_columns(0,np-1,nq-1,-pc_pi * angle / 180.0);
             // Reset the DIIS subspace
@@ -608,7 +608,7 @@ void UCKS::compute_holes()
     if(do_project_out_holes){
         // Project out the previous holes
         PoFaPo_->transform(Ph);
-        fprintf(outfile,"  Projecting out the previous holes\n");
+        outfile->Printf("  Projecting out the previous holes\n");
     }
 
     // Diagonalize the occ block
@@ -622,7 +622,7 @@ void UCKS::compute_particles()
         // Form the projector Ca Ca^T S Ca_gs
         TempMatrix->zero();
         // Copy Cp
-        fprintf(outfile,"\n  DEBUG -> \n");
+        outfile->Printf("\n  DEBUG -> \n");
         napartpi_.print();
 
         copy_block(Cp_,1.0,TempMatrix,0.0,nsopi_,napartpi_);
@@ -658,7 +658,7 @@ void UCKS::compute_particles()
     if (do_project_out_particles){
         // Project out the previous particles
         PvFaPv_->transform(Pp);
-        fprintf(outfile,"  Projecting out the previous particles\n");
+        outfile->Printf("  Projecting out the previous particles\n");
     }
 
     // Diagonalize the vir block
@@ -706,23 +706,23 @@ void UCKS::find_ee_occupation(SharedVector lambda_o,SharedVector lambda_v)
 
     CharacterTable ct = KS::molecule_->point_group()->char_table();
     if(iteration_ == 0){
-        fprintf(outfile, "\n  Ground state symmetry: %s\n",ct.gamma(ground_state_symmetry_).symbol());
-        fprintf(outfile, "  Excited state symmetry: %s\n",ct.gamma(excited_state_symmetry_).symbol());
-        fprintf(outfile, "\n  Lowest energy excitations:\n");
-        fprintf(outfile, "  --------------------------------------\n");
-        fprintf(outfile, "    N   Occupied     Virtual     E(eV)  \n");
-        fprintf(outfile, "  --------------------------------------\n");
+        outfile->Printf( "\n  Ground state symmetry: %s\n",ct.gamma(ground_state_symmetry_).symbol());
+        outfile->Printf( "  Excited state symmetry: %s\n",ct.gamma(excited_state_symmetry_).symbol());
+        outfile->Printf( "\n  Lowest energy excitations:\n");
+        outfile->Printf( "  --------------------------------------\n");
+        outfile->Printf( "    N   Occupied     Virtual     E(eV)  \n");
+        outfile->Printf( "  --------------------------------------\n");
         int maxstates = std::min(10,static_cast<int>(sorted_hp_pairs.size()));
         for (int n = 0; n < maxstates; ++n){
             double energy_hp = sorted_hp_pairs[n].get<6>() - sorted_hp_pairs[n].get<3>();
-            fprintf(outfile,"   %2d   %4d%-3s  -> %4d%-3s   %9.3f\n",n + 1,
+            outfile->Printf("   %2d   %4d%-3s  -> %4d%-3s   %9.3f\n",n + 1,
                     sorted_hp_pairs[n].get<2>() + 1,
                     ct.gamma(sorted_hp_pairs[n].get<1>()).symbol(),
                     gs_nalphapi_[sorted_hp_pairs[n].get<4>()] + sorted_hp_pairs[n].get<5>() + 1,
                     ct.gamma(sorted_hp_pairs[n].get<4>()).symbol(),
                     energy_hp * pc_hartree2ev);
         }
-        fprintf(outfile, "  --------------------------------------\n");
+        outfile->Printf( "  --------------------------------------\n");
 
         int select_pair = 0;
         // Select the excitation pair using the energetic ordering
@@ -730,7 +730,7 @@ void UCKS::find_ee_occupation(SharedVector lambda_o,SharedVector lambda_v)
             int input_select = KS::options_["CDFT_EXC_SELECT"][excited_state_symmetry_].to_integer();
             if (input_select > 0){
                 select_pair = input_select - 1;
-                fprintf(outfile, "\n  Following excitation #%d: ",input_select);
+                outfile->Printf( "\n  Following excitation #%d: ",input_select);
             }
         }
         // Select the excitation pair using the symmetry of the hole
@@ -744,7 +744,7 @@ void UCKS::find_ee_occupation(SharedVector lambda_o,SharedVector lambda_v)
                         break;
                     }
                 }
-                fprintf(outfile, "\n  Following excitation #%d:\n",select_pair + 1);
+                outfile->Printf( "\n  Following excitation #%d:\n",select_pair + 1);
             }
         }
         aholes.clear();
@@ -780,7 +780,7 @@ void UCKS::find_ee_occupation(SharedVector lambda_o,SharedVector lambda_v)
             aparts.push_back(apart);
         }
     }
-    fflush(outfile);
+    outfile->Flush();
 
     for (int h = 0; h < nirrep_; ++h){
         naholepi_[h] = 0;
@@ -788,25 +788,25 @@ void UCKS::find_ee_occupation(SharedVector lambda_o,SharedVector lambda_v)
     }
 
     // Compute the number of hole and/or particle orbitals to compute
-    fprintf(outfile,"\n  HOLES:     ");
+    outfile->Printf("\n  HOLES:     ");
     size_t naholes = aholes.size();
     for (size_t n = 0; n < naholes; ++n){
         naholepi_[aholes[n].get<0>()] += 1;
-        fprintf(outfile,"%4d%-3s (%+.6f)",
+        outfile->Printf("%4d%-3s (%+.6f)",
                 aholes[n].get<1>() + 1,
                 ct.gamma(aholes[n].get<0>()).symbol(),
                 aholes[n].get<2>());
     }
-    fprintf(outfile,"\n  PARTICLES: ");
+    outfile->Printf("\n  PARTICLES: ");
     size_t naparts = aparts.size();
     for (size_t n = 0; n < naparts; ++n){
         napartpi_[aparts[n].get<0>()] += 1;
-        fprintf(outfile,"%4d%-3s (%+.6f)",
+        outfile->Printf("%4d%-3s (%+.6f)",
                 gs_nalphapi_[aparts[n].get<0>()] + aparts[n].get<1>() + 1,
                 ct.gamma(aparts[n].get<0>()).symbol(),
                 aparts[n].get<2>());
     }
-    fprintf(outfile,"\n\n");
+    outfile->Printf("\n\n");
 }
 
 void UCKS::compute_hole_particle_mos()
@@ -882,7 +882,7 @@ void UCKS::diagonalize_F_spectator_relaxed()
     if(do_parts){
         TempMatrix->gemm(false,true,1.0,Cp_,Cp_,1.0);
         if(do_project_out_particles){
-            fprintf(outfile,"\n  Projecting out particles:");
+            outfile->Printf("\n  Projecting out particles:");
             TempMatrix->gemm(false,true,1.0,saved_Cp_,saved_Cp_,1.0);
         }
     }
@@ -901,7 +901,7 @@ void UCKS::diagonalize_F_spectator_relaxed()
     TempMatrix->zero();
     TempMatrix->gemm(false,false,1.0,dets[0]->Ca(),TempMatrix2,0.0);
 
-//    fprintf(outfile,"\n  Epsilons for spectators");
+//    outfile->Printf("\n  Epsilons for spectators");
 //    epsilon_a_->print();
     Ca_->copy(TempMatrix);
 }
@@ -962,7 +962,7 @@ void UCKS::sort_ee_mos()
                 }
                 m += 1;
             }
-            fprintf(outfile,"\n %d saved alpha holes",saved_naholepi_[h]);
+            outfile->Printf("\n %d saved alpha holes",saved_naholepi_[h]);
         }
         if(do_parts){
             for (int p = 0; p < napartpi_[h]; ++p){
@@ -972,7 +972,7 @@ void UCKS::sort_ee_mos()
                 }
                 m += 1;
             }
-            fprintf(outfile,"\n %d particles",napartpi_[h]);
+            outfile->Printf("\n %d particles",napartpi_[h]);
         }
         // Then the spectators
         int nspect = 0;
@@ -987,7 +987,7 @@ void UCKS::sort_ee_mos()
                 nspect += 1;
             }
         }
-        fprintf(outfile,"\n %d spectators",nspect);
+        outfile->Printf("\n %d spectators",nspect);
         // Then the (previously) projected particles and the holes
         if(do_holes){
             for (int p = 0; p < naholepi_[h]; ++p){
@@ -997,7 +997,7 @@ void UCKS::sort_ee_mos()
                 }
                 m += 1;
             }
-            fprintf(outfile,"\n %d holes",naholepi_[h]);
+            outfile->Printf("\n %d holes",naholepi_[h]);
         }
         if(do_project_out_particles){
             for (int p = 0; p < saved_napartpi_[h]; ++p){
@@ -1007,11 +1007,11 @@ void UCKS::sort_ee_mos()
                 }
                 m += 1;
             }
-            fprintf(outfile,"\n %d saved alpha particles",saved_napartpi_[h]);
+            outfile->Printf("\n %d saved alpha particles",saved_napartpi_[h]);
         }
 
-        fprintf(outfile,"\n Irrep %d has %d mos (%d,%d)",h,m,nsopi_[h],nmopi_[h]);
-        fflush(outfile);
+        outfile->Printf("\n Irrep %d has %d mos (%d,%d)",h,m,nsopi_[h],nmopi_[h]);
+        outfile->Flush();
     }
     Ca_->copy(TempMatrix);
     epsilon_a_->copy(*temp_epsilon_a_);
@@ -1231,7 +1231,7 @@ void UCKS::form_C_beta()
     if(KS::options_.get_str("CDFT_EXC_METHOD") != "CHP-FB"){
         diagonalize_F(Fb_, Cb_, epsilon_b_);
     }else{
-        fprintf(outfile,"\n  Frozen beta algorithm\n");
+        outfile->Printf("\n  Frozen beta algorithm\n");
         if(! PoFbPo_){
             PoFbPo_ = SharedMatrix(new Matrix("PoFbPo",gs_nbetapi_,gs_nbetapi_));
             PvFbPv_ = SharedMatrix(new Matrix("PvFbPo",gs_nbvirpi_,gs_nbvirpi_));
@@ -1239,7 +1239,7 @@ void UCKS::form_C_beta()
             Ub_v_ = SharedMatrix(new Matrix("Ub_v_",gs_nbvirpi_,gs_nbvirpi_));
             lambda_b_o_ = SharedVector(new Vector("lambda_b_o_",gs_nbetapi_));
             lambda_b_v_ = SharedVector(new Vector("lambda_b_v_",gs_nbvirpi_));
-            fprintf(outfile,"\n  Allocated beta matrices!!!\n");
+            outfile->Printf("\n  Allocated beta matrices!!!\n");
         }
 
         // Unrelaxed procedure, but still find MOs which diagonalize the occupied block
@@ -1322,7 +1322,7 @@ void UCKS::gradient_of_W()
     }
     if(nconstraints > 0){
         for (int c = 0; c < nconstraints; ++c){
-            fprintf(outfile,"   %-10s: grad = %10.7f    grad (resp) = %10.7f    Vc = %10.7f\n",constraints[c]->type().c_str(),
+            outfile->Printf("   %-10s: grad = %10.7f    grad (resp) = %10.7f    Vc = %10.7f\n",constraints[c]->type().c_str(),
                     gradW->get(c),gradW_mo_resp->get(c),Vc->get(c));
         }
     }
@@ -1333,7 +1333,7 @@ void UCKS::gradient_of_W()
 /// Implements Eq. (7) of Phys. Rev. A 72, 024502 (2005).
 void UCKS::hessian_of_W()
 {
-    fprintf(outfile,"\n  COMPUTE THE HESSIAN\n\n");
+    outfile->Printf("\n  COMPUTE THE HESSIAN\n\n");
     for (int c1 = 0; c1 < nconstraints; ++c1){
         for (int c2 = 0; c2 <= c1; ++c2){
             double hess = 0.0;
@@ -1404,7 +1404,7 @@ void UCKS::hessian_update(SharedMatrix h, SharedVector dx, SharedVector dg)
         }
     }
     else {
-        fprintf(outfile,"  BFGS not updating dxdg (%e), dgdg (%e), dxhdx (%f), dxdx(%e)\n" , dxdg, dgdg, dxhdx, dxdx);
+        outfile->Printf("  BFGS not updating dxdg (%e), dgdg (%e), dxhdx (%f), dxdx(%e)\n" , dxdg, dgdg, dxhdx, dxdx);
     }
 }
 
@@ -1421,7 +1421,7 @@ void UCKS::constraint_optimization()
         }
         // Make sure the component with the largest error is within 10% of the estimate
         if (max_error < 0.1 and gradW->norm() > gradW_threshold_){
-            fprintf(outfile, "  ==> Constraint optimization <==\n");
+            outfile->Printf( "  ==> Constraint optimization <==\n");
             if(nW_opt > 0){
                 SharedVector dVc = SharedVector(new Vector("dVc",nconstraints));
                 dVc->copy(Vc.get());
@@ -1430,7 +1430,7 @@ void UCKS::constraint_optimization()
                 dgradW->copy(gradW.get());
                 dgradW->subtract(gradW_old);
                 hessian_update(hessW_BFGS, dVc, dgradW);
-                fprintf(outfile, "  Hessian update.\n");
+                outfile->Printf( "  Hessian update.\n");
             }else{
                 hessian_of_W();
                 hessW_BFGS->copy(hessW);
@@ -1444,7 +1444,7 @@ void UCKS::constraint_optimization()
             bool warning;
             SharedMatrix hessW_inv = hessW_BFGS->pseudoinverse(1.0E-10, &warning);
             if (warning) {
-                fprintf(outfile, "  Warning, the inverse Hessian had to be conditioned.\n\n");
+                outfile->Printf( "  Warning, the inverse Hessian had to be conditioned.\n\n");
             }
             SharedVector h_inv_g = SharedVector(new Vector("h_inv_g",nconstraints));
             h_inv_g->gemv(false, 1.0, hessW_inv.get(), gradW.get(), 0.0);
@@ -1511,13 +1511,13 @@ double UCKS::compute_E()
     Etotal += dashD_E;
 
     if (debug_) {
-        fprintf(outfile, "   => Energetics <=\n\n");
-        fprintf(outfile, "    Nuclear Repulsion Energy = %24.14f\n", nuclearrep_);
-        fprintf(outfile, "    One-Electron Energy =      %24.14f\n", one_electron_E);
-        fprintf(outfile, "    Coulomb Energy =           %24.14f\n", 0.5 * coulomb_E);
-        fprintf(outfile, "    Hybrid Exchange Energy =   %24.14f\n", 0.5 * exchange_E);
-        fprintf(outfile, "    XC Functional Energy =     %24.14f\n", XC_E);
-        fprintf(outfile, "    -D Energy =                %24.14f\n", dashD_E);
+        outfile->Printf( "   => Energetics <=\n\n");
+        outfile->Printf( "    Nuclear Repulsion Energy = %24.14f\n", nuclearrep_);
+        outfile->Printf( "    One-Electron Energy =      %24.14f\n", one_electron_E);
+        outfile->Printf( "    Coulomb Energy =           %24.14f\n", 0.5 * coulomb_E);
+        outfile->Printf( "    Hybrid Exchange Energy =   %24.14f\n", 0.5 * exchange_E);
+        outfile->Printf( "    XC Functional Energy =     %24.14f\n", XC_E);
+        outfile->Printf( "    -D Energy =                %24.14f\n", dashD_E);
     }
     return Etotal;
 }
@@ -1584,7 +1584,7 @@ void UCKS::save_information()
     if(do_excitation){
         compute_transition_moments();
         double mixlet_exc_energy = E_ - ground_state_energy;
-        fprintf(outfile,"  Excited mixed state   : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+        outfile->Printf("  Excited mixed state   : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
                 mixlet_exc_energy,mixlet_exc_energy * pc_hartree2ev, mixlet_exc_energy * pc_hartree2wavenumbers);
         if(KS::options_.get_bool("CDFT_SPIN_ADAPT_CI")){
             spin_adapt_mixed_excitation();
@@ -1641,8 +1641,8 @@ void UCKS::compute_transition_moments()
     double overlap = 0.0;
     double hamiltonian = 0.0;
 
-    fprintf(outfile,"\n  Computing transition dipole moments");
-    fprintf(outfile,"\n  %d determinants stored",static_cast<int>(dets.size()));
+    outfile->Printf("\n  Computing transition dipole moments");
+    outfile->Printf("\n  %d determinants stored",static_cast<int>(dets.size()));
 
     SharedDeterminant A = dets[0];
     SharedDeterminant B = dets[dets.size() - 1];
@@ -1712,44 +1712,44 @@ void UCKS::compute_transition_moments()
             }
         }
     }
-    fprintf(outfile,"\n  Corresponding orbitals:\n");
-    fprintf(outfile,"  A(alpha): ");
+    outfile->Printf("\n  Corresponding orbitals:\n");
+    outfile->Printf("  A(alpha): ");
     for (size_t k = 0; k < Aalpha_nonc.size(); ++k){
         int i_h = Aalpha_nonc[k].get<0>();
         int i_mo = Aalpha_nonc[k].get<1>();
-        fprintf(outfile," (%1d,%2d)",i_h,i_mo);
+        outfile->Printf(" (%1d,%2d)",i_h,i_mo);
     }
-    fprintf(outfile,"\n  B(alpha): ");
+    outfile->Printf("\n  B(alpha): ");
     for (size_t k = 0; k < Balpha_nonc.size(); ++k){
         int i_h = Balpha_nonc[k].get<0>();
         int i_mo = Balpha_nonc[k].get<1>();
-        fprintf(outfile," (%1d,%2d)",i_h,i_mo);
+        outfile->Printf(" (%1d,%2d)",i_h,i_mo);
     }
-    fprintf(outfile,"\n  s(alpha): ");
+    outfile->Printf("\n  s(alpha): ");
     for (size_t k = 0; k < Balpha_nonc.size(); ++k){
         double i_s = Balpha_nonc[k].get<2>();
-        fprintf(outfile," %6e",i_s);
+        outfile->Printf(" %6e",i_s);
     }
-    fprintf(outfile,"\n  A(beta):  ");
+    outfile->Printf("\n  A(beta):  ");
     for (size_t k = 0; k < Abeta_nonc.size(); ++k){
         int i_h = Abeta_nonc[k].get<0>();
         int i_mo = Abeta_nonc[k].get<1>();
-        fprintf(outfile," (%1d,%2d)",i_h,i_mo);
+        outfile->Printf(" (%1d,%2d)",i_h,i_mo);
     }
-    fprintf(outfile,"\n  B(beta):  ");
+    outfile->Printf("\n  B(beta):  ");
     for (size_t k = 0; k < Bbeta_nonc.size(); ++k){
         int i_h = Bbeta_nonc[k].get<0>();
         int i_mo = Bbeta_nonc[k].get<1>();
-        fprintf(outfile," (%1d,%2d)",i_h,i_mo);
+        outfile->Printf(" (%1d,%2d)",i_h,i_mo);
     }
-    fprintf(outfile,"\n  s(beta):  ");
+    outfile->Printf("\n  s(beta):  ");
     for (size_t k = 0; k < Bbeta_nonc.size(); ++k){
         double i_s = Bbeta_nonc[k].get<2>();
-        fprintf(outfile," %6e",i_s);
+        outfile->Printf(" %6e",i_s);
     }
 
     double Stilde = Sta * Stb * detUValpha * detUVbeta;
-    fprintf(outfile,"\n  Stilde = %.6f\n",Stilde);
+    outfile->Printf("\n  Stilde = %.6f\n",Stilde);
 
 
     // Irreps and MO index of the alpha corresponding orbitals
@@ -1780,7 +1780,7 @@ void UCKS::compute_transition_moments()
     oe->set_Da_so(trDa);
     oe->set_Db_so(trDb);
     if (WorldComm->me() == 0)
-        fprintf(outfile, "  ==> Transition dipole moment computed with OCDFT <==\n\n");
+        outfile->Printf( "  ==> Transition dipole moment computed with OCDFT <==\n\n");
     oe->compute();
 }
 
@@ -1869,27 +1869,27 @@ void UCKS::spin_adapt_mixed_excitation()
     double singlet_energy = (E_ + H12)/(1.0 + S12);
     double triplet_exc_energy = (E_ - H12)/(1.0 - S12) - ground_state_energy;
     double singlet_exc_energy = (E_ + H12)/(1.0 + S12) - ground_state_energy;
-    fprintf(outfile,"\n\n  H12  %d-%s = %15.9f\n",
+    outfile->Printf("\n\n  H12  %d-%s = %15.9f\n",
             state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
             ct.gamma(excited_state_symmetry_).symbol(),H12);
-    fprintf(outfile,"  S12  %d-%s = %15.9f\n\n",
+    outfile->Printf("  S12  %d-%s = %15.9f\n\n",
             state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
             ct.gamma(excited_state_symmetry_).symbol(),S12);
 
-    fprintf(outfile,"\n  Triplet state energy (CI) %d-%s %20.9f Eh \n",
+    outfile->Printf("\n  Triplet state energy (CI) %d-%s %20.9f Eh \n",
             state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
             ct.gamma(excited_state_symmetry_).symbol(),triplet_energy);
 
-    fprintf(outfile,"\n  Singlet state energy (CI) %d-%s %20.9f Eh \n",
+    outfile->Printf("\n  Singlet state energy (CI) %d-%s %20.9f Eh \n",
             state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
             ct.gamma(excited_state_symmetry_).symbol(),singlet_energy);
 
-    fprintf(outfile,"\n  Excited triplet state %d-%s : excitation energy (CI) = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+    outfile->Printf("\n  Excited triplet state %d-%s : excitation energy (CI) = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
             state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
             ct.gamma(excited_state_symmetry_).symbol(),
             triplet_exc_energy,triplet_exc_energy * pc_hartree2ev, triplet_exc_energy * pc_hartree2wavenumbers);
 
-    fprintf(outfile,"  Excited singlet state %d-%s : excitation energy (CI) = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+    outfile->Printf("  Excited singlet state %d-%s : excitation energy (CI) = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
             state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
             ct.gamma(excited_state_symmetry_).symbol(),
             singlet_exc_energy,singlet_exc_energy * pc_hartree2ev, singlet_exc_energy * pc_hartree2wavenumbers);
@@ -1985,9 +1985,9 @@ double UCKS::compute_triplet_correction()
     for (int k = 0; k < num_noncoincidences; ++k){
         int i_h = noncoincidences[k].first;
         int i_mo = noncoincidences[k].second;
-        fprintf(outfile,"  Found a noncoincidence: irrep %d mo %d\n",i_h,i_mo);
+        outfile->Printf("  Found a noncoincidence: irrep %d mo %d\n",i_h,i_mo);
     }
-    fprintf(outfile,"  Stilde = %.6f\n",Stilde);
+    outfile->Printf("  Stilde = %.6f\n",Stilde);
     double overlap = 1.0;
     if(num_noncoincidences == 0){
         throw FeatureNotImplemented("CKS", "Overlap in the case of zero noncoincidences", __FILE__, __LINE__);
@@ -2023,7 +2023,7 @@ double UCKS::compute_triplet_correction()
             coupling += Dvalue * Jvalue;
         }
     }
-    fprintf(outfile,"  Matrix element from libfock = %20.12f\n",coupling);
+    outfile->Printf("  Matrix element from libfock = %20.12f\n",coupling);
 
     coupling *= Stilde * Stilde;
 
@@ -2079,14 +2079,14 @@ double UCKS::compute_triplet_correction()
         }
     }
     delete[] integrals;
-    fprintf(outfile,"  Matrix element from functor = %20.12f\n",c2);
+    outfile->Printf("  Matrix element from functor = %20.12f\n",c2);
 
     return coupling;
 }
 
 double UCKS::compute_S_plus_triplet_correction()
 {
-    fprintf(outfile,"\n  ==> Spin-adaptation correction using S+ <==\n");
+    outfile->Printf("\n  ==> Spin-adaptation correction using S+ <==\n");
     CharacterTable ct = KS::molecule_->point_group()->char_table();
     // A. Form the corresponding virtual alpha and occupied beta orbitals
     SharedMatrix Sba = SharedMatrix(new Matrix("Sba",nbetapi_,nmopi_ - nalphapi_));
@@ -2129,10 +2129,10 @@ double UCKS::compute_S_plus_triplet_correction()
 
     // Print some useful information
     int npairs = std::min(10,static_cast<int>(sorted_pair.size()));
-    fprintf(outfile,"  Most important corresponding occupied/virtual orbitals:\n\n");
-    fprintf(outfile,"  Pair  Irrep  MO  <phi_b|phi_a>\n");
+    outfile->Printf("  Most important corresponding occupied/virtual orbitals:\n\n");
+    outfile->Printf("  Pair  Irrep  MO  <phi_b|phi_a>\n");
     for (int p = 0; p < npairs; ++p){
-        fprintf(outfile,"    %2d     %3s %4d   %9.6f\n",p,ct.gamma(sorted_pair[p].get<1>()).symbol(),sorted_pair[p].get<2>(),sorted_pair[p].get<0>());
+        outfile->Printf("    %2d     %3s %4d   %9.6f\n",p,ct.gamma(sorted_pair[p].get<1>()).symbol(),sorted_pair[p].get<2>(),sorted_pair[p].get<0>());
     }
 
     // C. Transform the alpha virtual and beta occupied orbitals to the new representation
@@ -2169,16 +2169,16 @@ double UCKS::compute_S_plus_triplet_correction()
     TempMatrix2->copy(Cb_);
     Cb_->gemm(false,false,1.0,TempMatrix2,TempMatrix,0.0);
 
-    fprintf(outfile,"\n  Original occupation numbers:\n");
-    fprintf(outfile, "\tNA   [ ");
-    for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nalphapi_[h]);
-    fprintf(outfile, " %4d ]\n", nalphapi_[nirrep_-1]);
-    fprintf(outfile, "\tNB   [ ");
-    for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nbetapi_[h]);
-    fprintf(outfile, " %4d ]\n", nbetapi_[nirrep_-1]);
+    outfile->Printf("\n  Original occupation numbers:\n");
+    outfile->Printf( "\tNA   [ ");
+    for(int h = 0; h < nirrep_-1; ++h) outfile->Printf( " %4d,", nalphapi_[h]);
+    outfile->Printf( " %4d ]\n", nalphapi_[nirrep_-1]);
+    outfile->Printf( "\tNB   [ ");
+    for(int h = 0; h < nirrep_-1; ++h) outfile->Printf( " %4d,", nbetapi_[h]);
+    outfile->Printf( " %4d ]\n", nbetapi_[nirrep_-1]);
     int mo_h = sorted_pair[0].get<1>();
 
-    fprintf(outfile,"\n  Final occupation numbers:\n");
+    outfile->Printf("\n  Final occupation numbers:\n");
     // Update the occupation numbers
     nalphapi_[mo_h] += 1;
     nbetapi_[mo_h]  -= 1;
@@ -2190,12 +2190,12 @@ double UCKS::compute_S_plus_triplet_correction()
         nalpha_ += nalphapi_[h];
         nbeta_ += nalphapi_[h];
     }
-    fprintf(outfile, "\tNA   [ ");
-    for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nalphapi_[h]);
-    fprintf(outfile, " %4d ]\n", nalphapi_[nirrep_-1]);
-    fprintf(outfile, "\tNB   [ ");
-    for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nbetapi_[h]);
-    fprintf(outfile, " %4d ]\n", nbetapi_[nirrep_-1]);
+    outfile->Printf( "\tNA   [ ");
+    for(int h = 0; h < nirrep_-1; ++h) outfile->Printf( " %4d,", nalphapi_[h]);
+    outfile->Printf( " %4d ]\n", nalphapi_[nirrep_-1]);
+    outfile->Printf( "\tNB   [ ");
+    for(int h = 0; h < nirrep_-1; ++h) outfile->Printf( " %4d,", nbetapi_[h]);
+    outfile->Printf( " %4d ]\n", nbetapi_[nirrep_-1]);
 
     // Compute the density matrices with the new occupation
 
@@ -2207,27 +2207,27 @@ double UCKS::compute_S_plus_triplet_correction()
     double triplet_energy = compute_E();
     double triplet_exc_energy = triplet_energy - ground_state_energy;
 
-    fprintf(outfile,"\n  Triplet state energy (S+) %d-%s %20.9f Eh \n",
+    outfile->Printf("\n  Triplet state energy (S+) %d-%s %20.9f Eh \n",
             state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
             ct.gamma(excited_state_symmetry_).symbol(),triplet_energy);
 
-    fprintf(outfile,"\n  Singlet state energy (S+) %d-%s %20.9f Eh \n",
+    outfile->Printf("\n  Singlet state energy (S+) %d-%s %20.9f Eh \n",
             state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
             ct.gamma(excited_state_symmetry_).symbol(),2.0 * E_ - triplet_energy);
 
-    fprintf(outfile,"\n  Excited triplet state %d-%s : excitation energy (S+) = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+    outfile->Printf("\n  Excited triplet state %d-%s : excitation energy (S+) = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
             state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
             ct.gamma(excited_state_symmetry_).symbol(),
             triplet_exc_energy,triplet_exc_energy * pc_hartree2ev, triplet_exc_energy * pc_hartree2wavenumbers);
     double singlet_exc_energy = 2.0 * E_ - triplet_energy - ground_state_energy;
-    fprintf(outfile,"  Excited singlet state %d-%s : excitation energy (S+) = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+    outfile->Printf("  Excited singlet state %d-%s : excitation energy (S+) = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
             state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
             ct.gamma(excited_state_symmetry_).symbol(),
             singlet_exc_energy,singlet_exc_energy * pc_hartree2ev, singlet_exc_energy * pc_hartree2wavenumbers);
 
-    fprintf(outfile,"\n\n");
+    outfile->Printf("\n\n");
     compute_spin_contamination();
-    fprintf(outfile,"\n");
+    outfile->Printf("\n");
 
     // Revert to the mixed state occupation numbers
     nalphapi_[mo_h] -= 1;
@@ -2276,23 +2276,23 @@ void UCKS::cis_excitation_energy()
 
 //    std::sort(sorted_hp_pairs.begin(),sorted_hp_pairs.end());
 ////    if(iteration_ == 0){
-//    fprintf(outfile, "\n  Ground state symmetry: %s\n",ct.gamma(ground_state_symmetry_).symbol());
-//    fprintf(outfile, "  Excited state symmetry: %s\n",ct.gamma(excited_state_symmetry_).symbol());
-//    fprintf(outfile, "\n  Lowest energy excitations:\n");
-//    fprintf(outfile, "  --------------------------------------\n");
-//    fprintf(outfile, "    N   Occupied     Virtual     E(eV)  \n");
-//    fprintf(outfile, "  --------------------------------------\n");
+//    outfile->Printf( "\n  Ground state symmetry: %s\n",ct.gamma(ground_state_symmetry_).symbol());
+//    outfile->Printf( "  Excited state symmetry: %s\n",ct.gamma(excited_state_symmetry_).symbol());
+//    outfile->Printf( "\n  Lowest energy excitations:\n");
+//    outfile->Printf( "  --------------------------------------\n");
+//    outfile->Printf( "    N   Occupied     Virtual     E(eV)  \n");
+//    outfile->Printf( "  --------------------------------------\n");
 //    int maxstates = std::min(10,static_cast<int>(sorted_hp_pairs.size()));
 //    for (int n = 0; n < maxstates; ++n){
 //        double energy_hp = sorted_hp_pairs[n].get<6>() - sorted_hp_pairs[n].get<3>();
-//        fprintf(outfile,"   %2d:  %4d%-3s  -> %4d%-3s   %9.3f\n",n + 1,
+//        outfile->Printf("   %2d:  %4d%-3s  -> %4d%-3s   %9.3f\n",n + 1,
 //                sorted_hp_pairs[n].get<2>() + 1,
 //                ct.gamma(sorted_hp_pairs[n].get<1>()).symbol(),
 //                sorted_hp_pairs[n].get<5>() + 1,
 //                ct.gamma(sorted_hp_pairs[n].get<4>()).symbol(),
 //                energy_hp * _hartree2ev);
 //    }
-//    fprintf(outfile, "  --------------------------------------\n");
+//    outfile->Printf( "  --------------------------------------\n");
 
 //    int select_pair = 0;
 //    aholes_h = sorted_hp_pairs[select_pair].get<1>();
@@ -2453,7 +2453,7 @@ void UCKS::cis_excitation_energy()
 
 //    // Compute the energy
 //    double cis_energy = compute_E() - E_;
-//    fprintf(outfile,"\n  CIS excited state = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
+//    outfile->Printf("\n  CIS excited state = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
 //            cis_energy,cis_energy * _hartree2ev, cis_energy * _hartree2wavenumbers);
 }
 
@@ -2486,7 +2486,7 @@ void UCKS::cis_excitation_energy()
 //    Dt_->add(Db_);
 
 //    if (debug_) {
-//        fprintf(outfile, "in UHF::form_D:\n");
+//        outfile->Printf( "in UHF::form_D:\n");
 //        Da_->print();
 //        Db_->print();
 //    }

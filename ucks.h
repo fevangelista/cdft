@@ -3,8 +3,8 @@
 
 #include "boost/tuple/tuple.hpp"
 #include <libscf_solver/ks.h>
-#include <constraint.h>
-#include <determinant.h>
+#include "constraint.h"
+#include "determinant.h"
 
 namespace psi{
 class Options;

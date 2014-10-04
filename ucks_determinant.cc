@@ -1,5 +1,5 @@
 
-#include <ucks.h>
+#include "ucks.h"
 #include <physconst.h>
 #include <libmints/view.h>
 #include <libmints/mints.h>
@@ -91,44 +91,44 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
             }
         }
     }
-    fprintf(outfile,"\n  Corresponding orbitals:\n");
-    fprintf(outfile,"  A(alpha): ");
+    outfile->Printf("\n  Corresponding orbitals:\n");
+    outfile->Printf("  A(alpha): ");
     for (size_t k = 0; k < Aalpha_nonc.size(); ++k){
         int i_h = Aalpha_nonc[k].get<0>();
         int i_mo = Aalpha_nonc[k].get<1>();
-        fprintf(outfile," (%1d,%2d)",i_h,i_mo);
+        outfile->Printf(" (%1d,%2d)",i_h,i_mo);
     }
-    fprintf(outfile,"\n  B(alpha): ");
+    outfile->Printf("\n  B(alpha): ");
     for (size_t k = 0; k < Balpha_nonc.size(); ++k){
         int i_h = Balpha_nonc[k].get<0>();
         int i_mo = Balpha_nonc[k].get<1>();
-        fprintf(outfile," (%1d,%2d)",i_h,i_mo);
+        outfile->Printf(" (%1d,%2d)",i_h,i_mo);
     }
-    fprintf(outfile,"\n  s(alpha): ");
+    outfile->Printf("\n  s(alpha): ");
     for (size_t k = 0; k < Balpha_nonc.size(); ++k){
         double i_s = Balpha_nonc[k].get<2>();
-        fprintf(outfile," %6e",i_s);
+        outfile->Printf(" %6e",i_s);
     }
-    fprintf(outfile,"\n  A(beta):  ");
+    outfile->Printf("\n  A(beta):  ");
     for (size_t k = 0; k < Abeta_nonc.size(); ++k){
         int i_h = Abeta_nonc[k].get<0>();
         int i_mo = Abeta_nonc[k].get<1>();
-        fprintf(outfile," (%1d,%2d)",i_h,i_mo);
+        outfile->Printf(" (%1d,%2d)",i_h,i_mo);
     }
-    fprintf(outfile,"\n  B(beta):  ");
+    outfile->Printf("\n  B(beta):  ");
     for (size_t k = 0; k < Bbeta_nonc.size(); ++k){
         int i_h = Bbeta_nonc[k].get<0>();
         int i_mo = Bbeta_nonc[k].get<1>();
-        fprintf(outfile," (%1d,%2d)",i_h,i_mo);
+        outfile->Printf(" (%1d,%2d)",i_h,i_mo);
     }
-    fprintf(outfile,"\n  s(beta):  ");
+    outfile->Printf("\n  s(beta):  ");
     for (size_t k = 0; k < Balpha_nonc.size(); ++k){
         double i_s = Bbeta_nonc[k].get<2>();
-        fprintf(outfile," %6e",i_s);
+        outfile->Printf(" %6e",i_s);
     }
 
     double Stilde = Sta * Stb * detUValpha * detUVbeta;
-    fprintf(outfile,"\n  Stilde = %.6f\n",Stilde);
+    outfile->Printf("\n  Stilde = %.6f\n",Stilde);
 
     int num_alpha_nonc = static_cast<int>(Aalpha_nonc.size());
     int num_beta_nonc = static_cast<int>(Abeta_nonc.size());
@@ -137,7 +137,7 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
         s_a->print();
         s_b->print();
     }
-    fflush(outfile);
+    outfile->Flush();
 
 //    boost::shared_ptr<JK> jk = JK::build_JK();
     if(num_alpha_nonc == 0 and num_beta_nonc == 0){
@@ -245,21 +245,21 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
         double interaction = nuclearrep_ + one_body + two_body;
 
         hamiltonian = interaction * Stilde;
-        fprintf(outfile,"  Matrix element from libfock = %14.6f (Stilde) * %14.6f (int) = %20.12f\n", Stilde, interaction, hamiltonian);
-        fprintf(outfile,"  W_a . h = %20.12f\n", WH_a);
-        fprintf(outfile,"  W_b . h = %20.12f\n", WH_b);
-        fprintf(outfile,"  W_a . J(W_a) = %20.12f\n", WJW_aa);
-        fprintf(outfile,"  W_b . J(W_b) = %20.12f\n", WJW_bb);
-        fprintf(outfile,"  W_b . J(W_a) = %20.12f\n", WJW_ba);
-        fprintf(outfile,"  W_a . K(W_a) = %20.12f\n", WKW_aa);
-        fprintf(outfile,"  W_b . K(W_b) = %20.12f\n", WKW_bb);
+        outfile->Printf("  Matrix element from libfock = %14.6f (Stilde) * %14.6f (int) = %20.12f\n", Stilde, interaction, hamiltonian);
+        outfile->Printf("  W_a . h = %20.12f\n", WH_a);
+        outfile->Printf("  W_b . h = %20.12f\n", WH_b);
+        outfile->Printf("  W_a . J(W_a) = %20.12f\n", WJW_aa);
+        outfile->Printf("  W_b . J(W_b) = %20.12f\n", WJW_bb);
+        outfile->Printf("  W_b . J(W_a) = %20.12f\n", WJW_ba);
+        outfile->Printf("  W_a . K(W_a) = %20.12f\n", WKW_aa);
+        outfile->Printf("  W_b . K(W_b) = %20.12f\n", WKW_bb);
 
-        fprintf(outfile,"  W . h = %20.12f\n", one_body);
-        fprintf(outfile,"  1/2 W . J - 1/2 Wa . Ka - 1/2 Wb . Kb = %20.12f\n", two_body);
+        outfile->Printf("  W . h = %20.12f\n", one_body);
+        outfile->Printf("  1/2 W . J - 1/2 Wa . Ka - 1/2 Wb . Kb = %20.12f\n", two_body);
 
-        fprintf(outfile,"  E1 = %20.12f\n", pc_hartree2ev * ((E_ + hamiltonian)/(1+overlap) - ground_state_energy) );
-        fprintf(outfile,"  E2 = %20.12f\n", pc_hartree2ev * ((E_ - hamiltonian)/(1-overlap) - ground_state_energy) );
-        fprintf(outfile,"  E1-E2 = %20.12f\n", pc_hartree2ev * ((E_ + hamiltonian)/(1+overlap) - (E_ - hamiltonian)/(1-overlap)));
+        outfile->Printf("  E1 = %20.12f\n", pc_hartree2ev * ((E_ + hamiltonian)/(1+overlap) - ground_state_energy) );
+        outfile->Printf("  E2 = %20.12f\n", pc_hartree2ev * ((E_ - hamiltonian)/(1-overlap) - ground_state_energy) );
+        outfile->Printf("  E1-E2 = %20.12f\n", pc_hartree2ev * ((E_ + hamiltonian)/(1+overlap) - (E_ - hamiltonian)/(1-overlap)));
 
         C_left = jk_->C_left();
         C_left.clear();
@@ -285,15 +285,15 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
         double two_electron_E = coulomb_E + exchange_E;
 
         double E_HF_Phip = nuclearrep_ + one_electron_E + coulomb_E + 0.5 * exchange_E;
-        fprintf(outfile,"  nuclearrep_ = %20.12f\n",nuclearrep_);
-        fprintf(outfile,"  one_electron_E = %20.12f\n",one_electron_E);
-        fprintf(outfile,"  two_electron_E = %20.12f\n",two_electron_E);
-        fprintf(outfile,"  coulomb_E = %20.12f\n",coulomb_E);
-        fprintf(outfile,"  exchange_E = %20.12f\n",exchange_E);
-        fprintf(outfile,"  E_HF_Phi' = %20.12f\n",E_HF_Phip);
+        outfile->Printf("  nuclearrep_ = %20.12f\n",nuclearrep_);
+        outfile->Printf("  one_electron_E = %20.12f\n",one_electron_E);
+        outfile->Printf("  two_electron_E = %20.12f\n",two_electron_E);
+        outfile->Printf("  coulomb_E = %20.12f\n",coulomb_E);
+        outfile->Printf("  exchange_E = %20.12f\n",exchange_E);
+        outfile->Printf("  E_HF_Phi' = %20.12f\n",E_HF_Phip);
 
         double perfected_coupling = Stilde * (E_ + interaction - E_HF_Phip);
-        fprintf(outfile,"  Matrix element from libfock = %14.6f (Stilde) * %14.6f (int) = %20.12f\n", Stilde, E_ + interaction - E_HF_Phip, perfected_coupling);
+        outfile->Printf("  Matrix element from libfock = %14.6f (Stilde) * %14.6f (int) = %20.12f\n", Stilde, E_ + interaction - E_HF_Phip, perfected_coupling);
         hamiltonian = perfected_coupling;
 
 //        SharedMatrix h_BA_a = SharedMatrix(new Matrix("h_BA_a",A->nalphapi(),B->nalphapi()));
@@ -321,9 +321,9 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
 //        }
 //        double one_body2 = alpha_one_body2 + beta_one_body2;
 //        double interaction2 = one_body2;
-//        fprintf(outfile,"  Matrix element from libfock = %14.6f (Stilde) * %14.6f (int) = %20.12f\n", Stilde, interaction2, interaction2 * Stilde);
-//        fprintf(outfile,"  W_a . h = %20.12f\n", alpha_one_body2);
-//        fprintf(outfile,"  W_b . h = %20.12f\n", beta_one_body2);
+//        outfile->Printf("  Matrix element from libfock = %14.6f (Stilde) * %14.6f (int) = %20.12f\n", Stilde, interaction2, interaction2 * Stilde);
+//        outfile->Printf("  W_a . h = %20.12f\n", alpha_one_body2);
+//        outfile->Printf("  W_b . h = %20.12f\n", beta_one_body2);
 //        fflush(outfile);
 
 
@@ -385,8 +385,8 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
         }
         double twoelint = Jnew->vector_dot(D);
         hamiltonian = twoelint * std::fabs(Stilde);
-        fprintf(outfile,"\n\n  Warning, the code is using the absolute value of Stilde.  Hope for the best!\n\n");
-        fprintf(outfile,"  Matrix element from libfock = |%.6f| (Stilde) * %14.6f (int) = %20.12f\n", Stilde, twoelint, hamiltonian);
+        outfile->Printf("\n\n  Warning, the code is using the absolute value of Stilde.  Hope for the best!\n\n");
+        outfile->Printf("  Matrix element from libfock = |%.6f| (Stilde) * %14.6f (int) = %20.12f\n", Stilde, twoelint, hamiltonian);
     }else if(num_alpha_nonc == 2 and num_beta_nonc == 0){
         overlap = 0.0;
 //        throw FeatureNotImplemented("CKS", "H in the case of two alpha noncoincidences", __FILE__, __LINE__);
@@ -394,7 +394,7 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
         overlap = 0.0;
 //        throw FeatureNotImplemented("CKS", "H in the case of two beta noncoincidences", __FILE__, __LINE__);
     }
-    fflush(outfile);
+    outfile->Flush();
     return std::make_pair(overlap,hamiltonian);
 }
 
@@ -498,7 +498,7 @@ UCKS::corresponding_orbitals(SharedMatrix A, SharedMatrix B, Dimension dima, Dim
             delete[] indx;
         }
     }
-    fprintf(outfile,"\n det U = %f, det V = %f",detU,detV);
+    outfile->Printf("\n det U = %f, det V = %f",detU,detV);
     double detUV = detU * detV;
     boost::tuple<SharedMatrix,SharedMatrix,SharedVector,double> result(cA,cB,sigma,detUV);
     return result;
@@ -596,7 +596,7 @@ UCKS::corresponding_orbitals(SharedMatrix A, SharedMatrix B, Dimension dima, Dim
 //            }
 //        }
 //        delete[] integrals;
-//        fprintf(outfile,"  Matrix element from ints    = %20.12f\n",c2);
+//        outfile->Printf("  Matrix element from ints    = %20.12f\n",c2);
 
 //        {
 //        Dimension Aa_dim(nirrep_);
@@ -664,7 +664,7 @@ UCKS::corresponding_orbitals(SharedMatrix A, SharedMatrix B, Dimension dima, Dim
 //                rsym  = so2symblk_[rabs];
 //                ssym  = so2symblk_[sabs];
 //                value = (double) valptr[index];
-//                fprintf(outfile,"  (%2d %2d | %2d %2d) = %20.12f\n",pabs,qabs,rabs,sabs,value);
+//                outfile->Printf("  (%2d %2d | %2d %2d) = %20.12f\n",pabs,qabs,rabs,sabs,value);
 //            } /* end loop through current buffer */
 //            if(!lastBuffer) iwl->fetch();
 //        }while(!lastBuffer);

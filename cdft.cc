@@ -5,7 +5,7 @@
 #include <libmints/mints.h>
 #include <libpsio/psio.hpp>
 #include <libciomr/libciomr.h>
-#include <ucks.h>
+#include "ucks.h"
 #include <libscf_solver/hf.h>
 
 #include <libmints/wavefunction.h>
@@ -146,7 +146,7 @@ PsiReturnType cdft(Options& options)
             for (int h = 0; h < nirrep; ++h){
                 int nstates = options["ROOTS_PER_IRREP"][h].to_integer();                
                 if (nstates > 0){
-                    fprintf(outfile,"\n\n  ==== Computing %d state%s of symmetry %d ====\n",nstates,nstates > 1 ? "s" : "",h);
+                    outfile->Printf("\n\n  ==== Computing %d state%s of symmetry %d ====\n",nstates,nstates > 1 ? "s" : "",h);
                 }
                 int hole_num =  0;
                 int part_num = -1;

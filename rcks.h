@@ -2,7 +2,7 @@
 #define SRC_LIB_RCKS_H
 
 #include <libscf_solver/ks.h>
-#include <constraint.h>
+#include "constraint.h"
 
 namespace psi{
     class Options;

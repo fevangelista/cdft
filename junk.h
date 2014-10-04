@@ -7,7 +7,7 @@
 void UCKS::form_C_CH_algorithm()
 {
     int nstate = static_cast<int>(dets.size());
-    fprintf(outfile,"  Computing %d optimal hole orbitals\n",nstate);fflush(outfile);
+    outfile->Printf("  Computing %d optimal hole orbitals\n",nstate);fflush(outfile);
 
     // Data structures to save the hole information
     Dimension aholepi(nirrep_,"Alpha holes per irrep");
@@ -43,7 +43,7 @@ void UCKS::form_C_CH_algorithm()
         double hole_energy = hole.get<0>();
         int hole_h = hole.get<1>();
         int hole_mo = hole.get<2>();
-        fprintf(outfile,"   constrained hole %d :(irrep = %d,mo = %d,energy = %.6f)\n",
+        outfile->Printf("   constrained hole %d :(irrep = %d,mo = %d,energy = %.6f)\n",
                         m,hole_h,hole_mo,hole_energy);
 
         // Compute the hole orbital
@@ -204,7 +204,7 @@ void UCKS::form_C_CH_algorithm()
 void UCKS::form_C_CP_algorithm()
 {
     int nstate = static_cast<int>(dets.size());
-    fprintf(outfile,"  Computing %d optimal particle orbitals\n",nstate);
+    outfile->Printf("  Computing %d optimal particle orbitals\n",nstate);
 
     // Data structures to save the particle information
     Dimension apartpi(nirrep_,"Alpha particles per irrep");
@@ -230,7 +230,7 @@ void UCKS::form_C_CP_algorithm()
         boost::tuple<double,int,int> particle = sorted_vir.front();
         int part_h = particle.get<1>();
         int part_mo = particle.get<2>();
-        fprintf(outfile,"   constrained particle %d :(irrep = %d,mo = %d,energy = %.6f)\n",
+        outfile->Printf("   constrained particle %d :(irrep = %d,mo = %d,energy = %.6f)\n",
                 m,particle.get<1>(),particle.get<2>(),particle.get<0>());
 
         // Compute the particle orbital
@@ -463,7 +463,7 @@ void UCKS::form_C_CHP_algorithm()
                             int symm = h_h ^ h_p ^ ground_state_symmetry_;
                             if(not do_symmetry or (symm == excited_state_symmetry_)){ // Test for symmetry
                                 sorted_hp_pairs.push_back(boost::make_tuple(e_hp,h_h,h,e_h,h_p,p,e_p));  // N.B. shifted wrt to full indexing
-//                                fprintf(outfile, "  %s  gamma(h) = %s, gamma(p) = %s, gamma(hp) = %s, gamma(Phi-hp) = %s \n",do_symmetry ? "true" : "false",
+//                                outfile->Printf( "  %s  gamma(h) = %s, gamma(p) = %s, gamma(hp) = %s, gamma(Phi-hp) = %s \n",do_symmetry ? "true" : "false",
 //                                        ct.gamma(h_h).symbol(),ct.gamma(h_p).symbol(),ct.gamma(h_h ^ h_p).symbol(),
 //                                        ct.gamma(symm).symbol());
                             }
@@ -475,23 +475,23 @@ void UCKS::form_C_CHP_algorithm()
 
         std::sort(sorted_hp_pairs.begin(),sorted_hp_pairs.end());
         if(iteration_ == 0){
-            fprintf(outfile, "\n  Ground state symmetry: %s\n",ct.gamma(ground_state_symmetry_).symbol());
-            fprintf(outfile, "  Excited state symmetry: %s\n",ct.gamma(excited_state_symmetry_).symbol());
-            fprintf(outfile, "\n  Lowest energy excitations:\n");
-            fprintf(outfile, "  --------------------------------------\n");
-            fprintf(outfile, "    N   Occupied     Virtual     E(eV)  \n");
-            fprintf(outfile, "  --------------------------------------\n");
+            outfile->Printf( "\n  Ground state symmetry: %s\n",ct.gamma(ground_state_symmetry_).symbol());
+            outfile->Printf( "  Excited state symmetry: %s\n",ct.gamma(excited_state_symmetry_).symbol());
+            outfile->Printf( "\n  Lowest energy excitations:\n");
+            outfile->Printf( "  --------------------------------------\n");
+            outfile->Printf( "    N   Occupied     Virtual     E(eV)  \n");
+            outfile->Printf( "  --------------------------------------\n");
             int maxstates = std::min(10,static_cast<int>(sorted_hp_pairs.size()));
             for (int n = 0; n < maxstates; ++n){
                 double energy_hp = sorted_hp_pairs[n].get<6>() - sorted_hp_pairs[n].get<3>();
-                fprintf(outfile,"   %2d:  %4d%-3s  -> %4d%-3s   %9.3f\n",n + 1,
+                outfile->Printf("   %2d:  %4d%-3s  -> %4d%-3s   %9.3f\n",n + 1,
                         sorted_hp_pairs[n].get<2>() + 1,
                         ct.gamma(sorted_hp_pairs[n].get<1>()).symbol(),
                         dets[m]->nalphapi()[sorted_hp_pairs[n].get<4>()] + sorted_hp_pairs[n].get<5>() + 1,
                         ct.gamma(sorted_hp_pairs[n].get<4>()).symbol(),
                         energy_hp * _hartree2ev);
             }
-            fprintf(outfile, "  --------------------------------------\n");
+            outfile->Printf( "  --------------------------------------\n");
 
             int select_pair = 0;
             // Select the excitation pair using the energetic ordering
@@ -499,7 +499,7 @@ void UCKS::form_C_CHP_algorithm()
                 int input_select = KS::options_["CDFT_EXC_SELECT"][excited_state_symmetry_].to_integer();
                 if (input_select > 0){
                     select_pair = input_select - 1;
-                    fprintf(outfile, "\n  Following excitation #%d: ",input_select);
+                    outfile->Printf( "\n  Following excitation #%d: ",input_select);
                 }
             }
             // Select the excitation pair using the symmetry of the hole
@@ -513,7 +513,7 @@ void UCKS::form_C_CHP_algorithm()
                             break;
                         }
                     }
-                    fprintf(outfile, "\n  Following excitation #%d:\n",select_pair + 1);
+                    outfile->Printf( "\n  Following excitation #%d:\n",select_pair + 1);
                 }
             }
             hole_h = sorted_hp_pairs[select_pair].get<1>();
@@ -542,7 +542,7 @@ void UCKS::form_C_CHP_algorithm()
 //        int part_h = sorted_hp_pairs[0].get<4>();
 //        int part_mo = sorted_hp_pairs[0].get<5>();
         double part_energy = lambda_a_v_->get(part_h,part_mo);
-        fprintf(outfile,"                     "
+        outfile->Printf("                     "
                 "%4d%-3s (%9.3f) -> %4d%-3s (%9.3f)\n",
                 hole_mo + 1,
                 ct.gamma(hole_h).symbol(),
@@ -896,14 +896,14 @@ void UCKS::form_C_CHP_algorithm()
 //    // Get the excited state orbitals: Ca(ex) = Ca(gs) * (Uo | Uv)
 //    Ca_->gemm(false,false,1.0,dets[0]->Ca(),TempMatrix,0.0);
 //    if(do_constrained_hole and do_constrained_part){
-//        fprintf(outfile,"   constrained hole/particle pair :(irrep = %d,mo = %d,energy = %.6f) -> (irrep = %d,mo = %d,energy = %.6f)\n",
+//        outfile->Printf("   constrained hole/particle pair :(irrep = %d,mo = %d,energy = %.6f) -> (irrep = %d,mo = %d,energy = %.6f)\n",
 //                hole.get<1>(),hole.get<2>(),hole.get<0>(),
 //                particle.get<1>(),particle.get<2>(),particle.get<0>());
 //    }else if(do_constrained_hole and not do_constrained_part){
-//        fprintf(outfile,"   constrained hole :(irrep = %d,mo = %d,energy = %.6f)\n",
+//        outfile->Printf("   constrained hole :(irrep = %d,mo = %d,energy = %.6f)\n",
 //                hole.get<1>(),hole.get<2>(),hole.get<0>());
 //    }else if(not do_constrained_hole and do_constrained_part){
-//        fprintf(outfile,"   constrained particle :(irrep = %d,mo = %d,energy = %.6f)\n",
+//        outfile->Printf("   constrained particle :(irrep = %d,mo = %d,energy = %.6f)\n",
 //                particle.get<1>(),particle.get<2>(),particle.get<0>());
 //    }
 
@@ -953,7 +953,7 @@ void UCKS::form_C_CHP_algorithm()
 //    // If print > 2 (diagnostics), print always
 //    if((print_ > 2 || (print_ && occ_changed)) && iteration_ > 0){
 //        if (Communicator::world->me() == 0)
-//            fprintf(outfile, "\tOccupation by irrep:\n");
+//            outfile->Printf( "\tOccupation by irrep:\n");
 //        print_occupation();
 //    }
 
@@ -1163,8 +1163,8 @@ double UCKS::compute_overlap(int n)
 //            }
 //        }
 //    }
-//    fprintf(outfile,"   det(S_aa) = %.6f det(S_bb) = %.6f  <Phi|Phi'> = %.6f\n",detS_aa,detS_bb,detS_aa * detS_bb);
-//    fprintf(outfile,"   <Phi'|Poa|Phi'> = %.6f  <Phi'|Pob|Phi'> = %.6f  <Phi'|Po|Phi'> = %.6f\n",nalpha_ - traceS2_aa,nbeta_ - traceS2_bb,nalpha_ - traceS2_aa + nbeta_ - traceS2_bb);
+//    outfile->Printf("   det(S_aa) = %.6f det(S_bb) = %.6f  <Phi|Phi'> = %.6f\n",detS_aa,detS_bb,detS_aa * detS_bb);
+//    outfile->Printf("   <Phi'|Poa|Phi'> = %.6f  <Phi'|Pob|Phi'> = %.6f  <Phi'|Po|Phi'> = %.6f\n",nalpha_ - traceS2_aa,nbeta_ - traceS2_bb,nalpha_ - traceS2_aa + nbeta_ - traceS2_bb);
 //    TempMatrix->transform(state_Da[0],S_);
 //    TempMatrix2->transform(TempMatrix,Ca_);
 //    return (detS_aa * detS_bb);
@@ -1176,7 +1176,7 @@ void UCKS::form_C_CP_algorithm()
 
     // Excited state: use specialized code
     int nstate = static_cast<int>(state_Ca.size());
-    fprintf(outfile,"  Computing %d optimal particle orbitals\n",nstate);
+    outfile->Printf("  Computing %d optimal particle orbitals\n",nstate);
 
     for (int m = 0; m < nstate; ++m){
 
@@ -1303,14 +1303,14 @@ void UCKS::form_C_CP_algorithm()
     // Get the excited state orbitals: Ca(ex) = Ca(gs) * (Uo | Uv)
     Ca_->gemm(false,false,1.0,dets[0]->Ca(),TempMatrix,0.0);
     if(do_constrained_hole and do_constrained_part){
-        fprintf(outfile,"   constrained hole/particle pair :(irrep = %d,mo = %d,energy = %.6f) -> (irrep = %d,mo = %d,energy = %.6f)\n",
+        outfile->Printf("   constrained hole/particle pair :(irrep = %d,mo = %d,energy = %.6f) -> (irrep = %d,mo = %d,energy = %.6f)\n",
                 hole.get<1>(),hole.get<2>(),hole.get<0>(),
                 particle.get<1>(),particle.get<2>(),particle.get<0>());
     }else if(do_constrained_hole and not do_constrained_part){
-        fprintf(outfile,"   constrained hole :(irrep = %d,mo = %d,energy = %.6f)\n",
+        outfile->Printf("   constrained hole :(irrep = %d,mo = %d,energy = %.6f)\n",
                 hole.get<1>(),hole.get<2>(),hole.get<0>());
     }else if(not do_constrained_hole and do_constrained_part){
-        fprintf(outfile,"   constrained particle :(irrep = %d,mo = %d,energy = %.6f)\n",
+        outfile->Printf("   constrained particle :(irrep = %d,mo = %d,energy = %.6f)\n",
                 particle.get<1>(),particle.get<2>(),particle.get<0>());
     }
 
@@ -1360,7 +1360,7 @@ void UCKS::form_C_CP_algorithm()
     // If print > 2 (diagnostics), print always
     if((print_ > 2 || (print_ && occ_changed)) && iteration_ > 0){
         if (Communicator::world->me() == 0)
-            fprintf(outfile, "\tOccupation by irrep:\n");
+            outfile->Printf( "\tOccupation by irrep:\n");
         print_occupation();
     }
 
@@ -1502,7 +1502,7 @@ void UCKS::form_C_CP_algorithm()
 //    Dt_->add(Db_);
 
 //    if (debug_) {
-//        fprintf(outfile, "in UCKS::form_D:\n");
+//        outfile->Printf( "in UCKS::form_D:\n");
 //        Da_->print();
 //        Db_->print();
 //    }
@@ -1522,7 +1522,7 @@ void UCKS::form_C_CP_algorithm()
 //                    homo_e = state_epsilon_a[0]->get(h,nocc);
 //                }
 //            }
-//            fprintf(outfile,"  The HOMO orbital has energy %.9f and is %d of irrep %d.\n",homo_e,homo_p,homo_h);
+//            outfile->Printf("  The HOMO orbital has energy %.9f and is %d of irrep %d.\n",homo_e,homo_p,homo_h);
 //            Pa = SharedMatrix(factory_->create_matrix("Penalty matrix alpha"));
 //            for (int mu = 0; mu < nsopi_[homo_h]; ++mu){
 //                for (int nu = 0; nu < nsopi_[homo_h]; ++nu){
@@ -1797,16 +1797,16 @@ void UCKS::form_C_CP_algorithm()
 //// If print > 2 (diagnostics), print always
 //if((print_ > 2 || (print_ && occ_changed)) && iteration_ > 0){
 //    if (Communicator::world->me() == 0)
-//        fprintf(outfile, "\tOccupation by irrep:\n");
+//        outfile->Printf( "\tOccupation by irrep:\n");
 //    print_occupation();
 //}
 
-//fprintf(outfile, "\tNA   [ ");
-//for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nalphapi_[h]);
-//fprintf(outfile, " %4d ]\n", nalphapi_[nirrep_-1]);
-//fprintf(outfile, "\tNB   [ ");
-//for(int h = 0; h < nirrep_-1; ++h) fprintf(outfile, " %4d,", nbetapi_[h]);
-//fprintf(outfile, " %4d ]\n", nbetapi_[nirrep_-1]);
+//outfile->Printf( "\tNA   [ ");
+//for(int h = 0; h < nirrep_-1; ++h) outfile->Printf( " %4d,", nalphapi_[h]);
+//outfile->Printf( " %4d ]\n", nalphapi_[nirrep_-1]);
+//outfile->Printf( "\tNB   [ ");
+//for(int h = 0; h < nirrep_-1; ++h) outfile->Printf( " %4d,", nbetapi_[h]);
+//outfile->Printf( " %4d ]\n", nbetapi_[nirrep_-1]);
 
 //// Compute the density matrices with the new occupation
 //form_D();
