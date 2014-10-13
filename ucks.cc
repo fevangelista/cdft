@@ -10,6 +10,8 @@
 #include <libciomr/libciomr.h>
 #include <libqt/qt.h>
 #include "boost/tuple/tuple_comparison.hpp"
+#include <boost/format.hpp>
+#include <boost/algorithm/string/join.hpp>
 #include <libiwl/iwl.hpp>
 #include <psifiles.h>
 //#include <libscf_solver/integralfunctors.h>
@@ -622,8 +624,8 @@ void UCKS::compute_particles()
         // Form the projector Ca Ca^T S Ca_gs
         TempMatrix->zero();
         // Copy Cp
-        outfile->Printf("\n  DEBUG -> \n");
-        napartpi_.print();
+//        outfile->Printf("\n  DEBUG -> \n");
+//        napartpi_.print();
 
         copy_block(Cp_,1.0,TempMatrix,0.0,nsopi_,napartpi_);
         // Copy the virtual block of Ca
@@ -962,7 +964,7 @@ void UCKS::sort_ee_mos()
                 }
                 m += 1;
             }
-            outfile->Printf("\n %d saved alpha holes",saved_naholepi_[h]);
+//            outfile->Printf("\n %d saved alpha holes",saved_naholepi_[h]);
         }
         if(do_parts){
             for (int p = 0; p < napartpi_[h]; ++p){
@@ -972,7 +974,7 @@ void UCKS::sort_ee_mos()
                 }
                 m += 1;
             }
-            outfile->Printf("\n %d particles",napartpi_[h]);
+//            outfile->Printf("\n %d particles",napartpi_[h]);
         }
         // Then the spectators
         int nspect = 0;
@@ -987,7 +989,7 @@ void UCKS::sort_ee_mos()
                 nspect += 1;
             }
         }
-        outfile->Printf("\n %d spectators",nspect);
+//        outfile->Printf("\n %d spectators",nspect);
         // Then the (previously) projected particles and the holes
         if(do_holes){
             for (int p = 0; p < naholepi_[h]; ++p){
@@ -997,7 +999,7 @@ void UCKS::sort_ee_mos()
                 }
                 m += 1;
             }
-            outfile->Printf("\n %d holes",naholepi_[h]);
+//            outfile->Printf("\n %d holes",naholepi_[h]);
         }
         if(do_project_out_particles){
             for (int p = 0; p < saved_napartpi_[h]; ++p){
@@ -1007,11 +1009,11 @@ void UCKS::sort_ee_mos()
                 }
                 m += 1;
             }
-            outfile->Printf("\n %d saved alpha particles",saved_napartpi_[h]);
+//            outfile->Printf("\n %d saved alpha particles",saved_napartpi_[h]);
         }
 
-        outfile->Printf("\n Irrep %d has %d mos (%d,%d)",h,m,nsopi_[h],nmopi_[h]);
-        outfile->Flush();
+//        outfile->Printf("\n Irrep %d has %d mos (%d,%d)",h,m,nsopi_[h],nmopi_[h]);
+//        outfile->Flush();
     }
     Ca_->copy(TempMatrix);
     epsilon_a_->copy(*temp_epsilon_a_);
@@ -1580,8 +1582,74 @@ void UCKS::save_information()
 {
 //    saved_naholepi_ = naholepi_;
 //    saved_napartpi_ = napartpi_;
+
+
+
     dets.push_back(SharedDeterminant(new Determinant(E_,Ca_,Cb_,nalphapi_,nbetapi_)));
+
+
     if(do_excitation){
+        CharacterTable ct = KS::molecule_->point_group()->char_table();
+
+        outfile->Printf("\n\n  Analysis of the hole/particle MOs in terms of the ground state DFT MOs");
+        TempMatrix->gemm(false,false,1.0,S_,dets[0]->Ca(),0.0);
+        SharedMatrix ChSCa(new Matrix(Ch_->colspi(),dets[0]->Ca()->colspi()));
+        ChSCa->gemm(true,false,1.0,Ch_,TempMatrix,0.0);
+        for (int h = 0; h < nirrep_; ++h){
+            for (int p = 0; p < Ch_->colspi()[h]; ++p){
+                double sum = 0.0;
+                for (int q = 0; q < Ch_->rowspi()[h]; ++q){
+                    sum += std::fabs(Ch_->get(h,q,p));
+                }
+                if (sum > 1.0e-3){
+                    std::vector<std::pair<double,int> > pair_occ_mo;
+                    for (int q = 0; q < Ca_->colspi()[h]; ++q){
+                        pair_occ_mo.push_back(std::make_pair(std::pow(ChSCa->get(h,p,q),2.0),q));
+                    }
+                    std::sort(pair_occ_mo.begin(),pair_occ_mo.end());
+                    std::reverse(pair_occ_mo.begin(),pair_occ_mo.end());
+                    std::vector<std::string> vec_str;
+                    for (auto occ_mo : pair_occ_mo){
+                        if (occ_mo.first > 0.01){
+                            vec_str.push_back(boost::str(boost::format(" %.1f%% %d%s")  % (occ_mo.first*100.0)  % occ_mo.second % ct.gamma(h).symbol()));
+                        }
+                    }
+                    outfile->Printf("\n  Hole:     %6d%s = %s",p,ct.gamma(h).symbol(),boost::algorithm::join(vec_str, " + ").c_str());
+                }
+            }
+        }
+
+
+        TempMatrix->gemm(false,false,1.0,S_,dets[0]->Ca(),0.0);
+        SharedMatrix CpSCa(new Matrix(Cp_->colspi(),dets[0]->Ca()->colspi()));
+        CpSCa->gemm(true,false,1.0,Cp_,TempMatrix,0.0);
+        for (int h = 0; h < nirrep_; ++h){
+            for (int p = 0; p < Cp_->colspi()[h]; ++p){
+                double sum = 0.0;
+                for (int q = 0; q < Cp_->rowspi()[h]; ++q){
+                    sum += std::fabs(Cp_->get(h,q,p));
+                }
+                if (sum > 1.0e-3){
+                    std::vector<std::pair<double,int> > pair_occ_mo;
+                    for (int q = 0; q < Ca_->colspi()[h]; ++q){
+                        pair_occ_mo.push_back(std::make_pair(std::pow(CpSCa->get(h,p,q),2.0),q));
+                    }
+                    std::sort(pair_occ_mo.begin(),pair_occ_mo.end());
+                    std::reverse(pair_occ_mo.begin(),pair_occ_mo.end());
+                    std::vector<std::string> vec_str;
+                    for (auto occ_mo : pair_occ_mo){
+                        if (occ_mo.first > 0.01){
+                            vec_str.push_back(boost::str(boost::format(" %.1f%% %d%s")  % (occ_mo.first*100.0)  % occ_mo.second % ct.gamma(h).symbol()));
+                        }
+                    }
+                    outfile->Printf("\n  Particle: %6d%s = %s",p,ct.gamma(h).symbol(),boost::algorithm::join(vec_str, " + ").c_str());
+                }
+            }
+        }
+        outfile->Printf("\n\n");
+
+
+
         compute_transition_moments();
         double mixlet_exc_energy = E_ - ground_state_energy;
         outfile->Printf("  Excited mixed state   : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
