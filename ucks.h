@@ -15,7 +15,7 @@ class UCKS : public UKS {
 public:
     explicit UCKS(Options &options, boost::shared_ptr<PSIO> psio);
     explicit UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<Wavefunction> ref_scf, int state);
-    explicit UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<Wavefunction> ref_scf, int state, int symmetry, int hole_num, int part_num);
+    explicit UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<Wavefunction> ref_scf, int state, int symmetry);
     virtual ~UCKS();
 protected:
     /// The fragment constraint matrices in the SO basis
@@ -48,10 +48,10 @@ protected:
     int excited_state_symmetry_;
     /// Excited state number, starting from one
     int state_;
-    /// Hole level
-    int hole_num_;
-    /// Particle level
-    int part_num_;
+//    /// Hole level
+//    int hole_num_;
+//    /// Particle level
+//    int part_num_;
 
     // Information about the excited states
     /// Determinant information for each electronic state
@@ -204,6 +204,9 @@ protected:
     /// Form the Fock matrix for the spectator orbitals
     void diagonalize_F_spectator_unrelaxed();
     void sort_ee_mos();
+
+    /// Analyze excitations
+    void analyze_excitations();
     /// Compute the transition dipole moment between the ground and excited states
     void compute_transition_moments();
     /// Compute a correction for the mixed excited states
