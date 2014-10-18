@@ -86,7 +86,7 @@ int read_options(std::string name, Options& options)
 extern "C"
 PsiReturnType cdft(Options& options)
 {
-    tstart();
+//    tstart();
 
     boost::shared_ptr<PSIO> psio = PSIO::shared_object();
     boost::shared_ptr<Wavefunction> ref_scf;
@@ -152,7 +152,7 @@ PsiReturnType cdft(Options& options)
                 int part_num = -1;
                 for (int state = 1; state <= nstates; ++state){
                     part_num += 1;
-                    boost::shared_ptr<Wavefunction> new_scf = boost::shared_ptr<Wavefunction>(new scf::UCKS(options,psio,ref_scf,state,h,hole_num,part_num));
+                    boost::shared_ptr<Wavefunction> new_scf = boost::shared_ptr<Wavefunction>(new scf::UCKS(options,psio,ref_scf,state,h));
                     Process::environment.wavefunction().reset();
                     Process::environment.set_wavefunction(new_scf);
                     double new_energy = new_scf->compute_energy();
@@ -190,7 +190,7 @@ PsiReturnType cdft(Options& options)
 
     // Shut down psi.
 
-    tstop();
+//    tstop();
     return Success;
 }
 
