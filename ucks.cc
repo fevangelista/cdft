@@ -17,6 +17,8 @@
 //#include <libscf_solver/integralfunctors.h>
 //#include <libscf_solver/omegafunctors.h>
 
+#define DEBUG_OCDFT 0
+
 #define DEBUG_THIS2(EXP) \
     outfile->Printf("\n  Starting " #EXP " ..."); fflush(outfile); \
     EXP \
@@ -235,6 +237,8 @@ void UCKS::init_excitation(boost::shared_ptr<Wavefunction> ref_scf)
     if (project_out == "H"){
         do_project_out_holes = true;
         do_save_holes = true;
+        // Project out all the holes
+        project_naholepi_ = saved_naholepi_;
     }else if (project_out == "P"){
         do_project_out_particles = true;
         do_save_particles = true;
@@ -263,20 +267,8 @@ void UCKS::init_excitation(boost::shared_ptr<Wavefunction> ref_scf)
                 do_save_particles = true;
                 do_save_holes = false;
                 do_project_out_holes = true;
-//                saved_naholepi_[0] = (state_-1)/ KS::options_.get_int("CDFT_NUM_PROJECT_OUT");
                 outfile->Printf("\n  Compute a new particle and save it, project out the holes but don't save it.  Saved holes %d",saved_naholepi_[0]);
             }
-//                if (state_ % KS::options_.get_int("CDFT_NUM_PROJECT_OUT") == 0){
-//                    // Compute a new particle and save it, project out the holes but don't save it
-//                    outfile->Printf("\n  Compute a new particle and save it, project out the holes but don't save it");
-//                    do_save_particles = true;
-//                    do_save_holes = false;
-//                }else {
-//                    // Reset the cycle, compute a new hole and zero the previous particles
-//                    outfile->Printf("\n  Reset the cycle, compute a new hole and zero the previous particles");
-//                    do_save_particles = true;
-//                    do_save_holes = true;
-//                }
         }
     }
     outfile->Printf("\n  ");
@@ -610,12 +602,15 @@ void UCKS::compute_holes()
     if(do_project_out_holes){
         // Project out the previous holes
         PoFaPo_->transform(Ph);
-        outfile->Printf("  Projecting out the previous holes\n");
+        outfile->Printf("  Projecting out %d previous holes\n",project_naholepi_.sum());
     }
 
     // Diagonalize the occ block
     PoFaPo_->diagonalize(Ua_o_,lambda_a_o_);
-//    lambda_a_o_->print();
+
+#if DEBUG_OCDFT
+    lambda_a_o_->print();
+#endif
 }
 
 void UCKS::compute_particles()
@@ -660,12 +655,15 @@ void UCKS::compute_particles()
     if (do_project_out_particles){
         // Project out the previous particles
         PvFaPv_->transform(Pp);
-        outfile->Printf("  Projecting out the previous particles\n");
+        outfile->Printf("  Projecting out %d previous particles\n",saved_napartpi_.sum());
     }
 
     // Diagonalize the vir block
     PvFaPv_->diagonalize(Ua_v_,lambda_a_v_);
-//    lambda_a_v_->print();
+
+#if DEBUG_OCDFT
+    lambda_a_v_->print();
+#endif
 }
 
 void UCKS::find_ee_occupation(SharedVector lambda_o,SharedVector lambda_v)
@@ -1663,15 +1661,7 @@ void UCKS::save_information()
 
         if (do_save_holes){
             // Add the saved holes to the Ch_ matrix
-//            saved_naholepi_.print();
-//            for (int h = 0; h < nirrep_; ++h){
-//                for (int i = 0; i < saved_naholepi_[h]; ++i){
-//                    Ch_->set_column(h,naholepi_[h] + i,saved_Ch_->get_column(h,i));
-//                }
-//            }
-//            naholepi_ += saved_naholepi_;
-
-            // Flipped things here.  The information about previous holes is passed via saved_Ch_
+            // The information about previous holes is passed via saved_Ch_
             saved_naholepi_.print();
             for (int h = 0; h < nirrep_; ++h){
                 for (int i = 0; i < naholepi_[h]; ++i){
