@@ -243,6 +243,11 @@ void UCKS::init_excitation(boost::shared_ptr<Wavefunction> ref_scf)
         do_project_out_particles = true;
         do_save_particles = true;
     }else if (project_out == "HP"){
+        if (nirrep_ != 1){
+            outfile->Printf("\n  The HP algorithm is only implemented for C1 symmetry.\n");
+            outfile->Flush();
+            exit(1);
+        }
         do_project_out_holes = true;
         do_project_out_particles = true;
         do_save_particles = true;
