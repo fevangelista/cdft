@@ -7,7 +7,8 @@ CDFT.creator.user.2.6pre1
 CDFT.creator.user.92787d5
 CDFT.files
 CDFT.includes
-Makefile.opt
+Makefile.*
+tests/junk/
 
 *.pyc
 *.o
