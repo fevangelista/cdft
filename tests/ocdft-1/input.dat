@@ -1,12 +1,10 @@
-#! EE-CDFT CPH algorithm test, B3LYP computation on ethene
+#! OCDFT CPH algorithm test, B3LYP computation on ethene
 
-memory 250 mb
+import cdft
 
 refdft                = -78.62361950910612 #TEST 
 refocdft_singlet_spin = -78.366031258 #TEST
 refocdft_triplet_spin = -78.455205000 #TEST
-
-import cdft
 
 molecule {
 0 1
