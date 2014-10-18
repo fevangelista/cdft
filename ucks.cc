@@ -56,16 +56,14 @@ UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<Wav
   ground_state_energy(0.0),
   ground_state_symmetry_(0),
   excited_state_symmetry_(0),
-  state_(state),
-  hole_num_(0),
-  part_num_(0)
+  state_(state)
 {
     init();
     init_excitation(ref_scf);
     ground_state_energy = dets[0]->energy();
 }
 
-UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<Wavefunction> ref_scf, int state,int symmetry,int hole_num,int part_num)
+UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<Wavefunction> ref_scf, int state,int symmetry)
 : UKS(options, psio),
   do_excitation(true),
   do_symmetry(true),
@@ -75,9 +73,7 @@ UCKS::UCKS(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<Wav
   ground_state_energy(0.0),
   ground_state_symmetry_(0),
   excited_state_symmetry_(symmetry),
-  state_(state),
-  hole_num_(hole_num),
-  part_num_(part_num)
+  state_(state)
 {
     init();
     init_excitation(ref_scf);
@@ -235,14 +231,17 @@ void UCKS::init_excitation(boost::shared_ptr<Wavefunction> ref_scf)
     do_project_out_holes = false;
     do_project_out_particles = false;
     if (project_out == "H"){
+        outfile->Printf("\n  Projecting out only holes.\n");
         do_project_out_holes = true;
         do_save_holes = true;
         // Project out all the holes
         project_naholepi_ = saved_naholepi_;
     }else if (project_out == "P"){
+        outfile->Printf("\n  Projecting out only particles.\n");
         do_project_out_particles = true;
         do_save_particles = true;
     }else if (project_out == "HP"){
+        outfile->Printf("\n  Projecting out holes and particles.\n");
         if (nirrep_ != 1){
             outfile->Printf("\n  The HP algorithm is only implemented for C1 symmetry.\n");
             outfile->Flush();
@@ -624,9 +623,6 @@ void UCKS::compute_particles()
         // Form the projector Ca Ca^T S Ca_gs
         TempMatrix->zero();
         // Copy Cp
-//        outfile->Printf("\n  DEBUG -> \n");
-//        napartpi_.print();
-
         copy_block(Cp_,1.0,TempMatrix,0.0,nsopi_,napartpi_);
         // Copy the virtual block of Ca
         copy_block(Ca_,1.0,TempMatrix,0.0,nsopi_,nmopi_ - nalphapi_,zero_dim_,nalphapi_,zero_dim_,napartpi_);
@@ -649,7 +645,6 @@ void UCKS::compute_particles()
     SharedMatrix project_Cp(new Matrix("project_Cp_",nsopi_,gs_navirpi_));
     // Copy only the orbitals that need to be projected out
     copy_subblock(saved_Cp_,project_Cp,nsopi_,saved_napartpi_,true);
-//    project_Cp->print();
     TempMatrix->gemm(false,true,1.0,project_Cp,project_Cp,0.0);
     TempMatrix->transform(S_);
     TempMatrix->transform(dets[0]->Ca());
@@ -1592,68 +1587,12 @@ void UCKS::save_information()
 
 
     if(do_excitation){
-        CharacterTable ct = KS::molecule_->point_group()->char_table();
+        Process::environment.globals["DFT ENERGY"] = ground_state_energy;
 
-        outfile->Printf("\n\n  Analysis of the hole/particle MOs in terms of the ground state DFT MOs");
-        TempMatrix->gemm(false,false,1.0,S_,dets[0]->Ca(),0.0);
-        SharedMatrix ChSCa(new Matrix(Ch_->colspi(),dets[0]->Ca()->colspi()));
-        ChSCa->gemm(true,false,1.0,Ch_,TempMatrix,0.0);
-        for (int h = 0; h < nirrep_; ++h){
-            for (int p = 0; p < Ch_->colspi()[h]; ++p){
-                double sum = 0.0;
-                for (int q = 0; q < Ch_->rowspi()[h]; ++q){
-                    sum += std::fabs(Ch_->get(h,q,p));
-                }
-                if (sum > 1.0e-3){
-                    std::vector<std::pair<double,int> > pair_occ_mo;
-                    for (int q = 0; q < Ca_->colspi()[h]; ++q){
-                        pair_occ_mo.push_back(std::make_pair(std::pow(ChSCa->get(h,p,q),2.0),q));
-                    }
-                    std::sort(pair_occ_mo.begin(),pair_occ_mo.end());
-                    std::reverse(pair_occ_mo.begin(),pair_occ_mo.end());
-                    std::vector<std::string> vec_str;
-                    for (auto occ_mo : pair_occ_mo){
-                        if (occ_mo.first > 0.01){
-                            vec_str.push_back(boost::str(boost::format(" %.1f%% %d%s")  % (occ_mo.first*100.0)  % occ_mo.second % ct.gamma(h).symbol()));
-                        }
-                    }
-                    outfile->Printf("\n  Hole:     %6d%s = %s",p,ct.gamma(h).symbol(),boost::algorithm::join(vec_str, " + ").c_str());
-                }
-            }
-        }
-
-
-        TempMatrix->gemm(false,false,1.0,S_,dets[0]->Ca(),0.0);
-        SharedMatrix CpSCa(new Matrix(Cp_->colspi(),dets[0]->Ca()->colspi()));
-        CpSCa->gemm(true,false,1.0,Cp_,TempMatrix,0.0);
-        for (int h = 0; h < nirrep_; ++h){
-            for (int p = 0; p < Cp_->colspi()[h]; ++p){
-                double sum = 0.0;
-                for (int q = 0; q < Cp_->rowspi()[h]; ++q){
-                    sum += std::fabs(Cp_->get(h,q,p));
-                }
-                if (sum > 1.0e-3){
-                    std::vector<std::pair<double,int> > pair_occ_mo;
-                    for (int q = 0; q < Ca_->colspi()[h]; ++q){
-                        pair_occ_mo.push_back(std::make_pair(std::pow(CpSCa->get(h,p,q),2.0),q));
-                    }
-                    std::sort(pair_occ_mo.begin(),pair_occ_mo.end());
-                    std::reverse(pair_occ_mo.begin(),pair_occ_mo.end());
-                    std::vector<std::string> vec_str;
-                    for (auto occ_mo : pair_occ_mo){
-                        if (occ_mo.first > 0.01){
-                            vec_str.push_back(boost::str(boost::format(" %.1f%% %d%s")  % (occ_mo.first*100.0)  % occ_mo.second % ct.gamma(h).symbol()));
-                        }
-                    }
-                    outfile->Printf("\n  Particle: %6d%s = %s",p,ct.gamma(h).symbol(),boost::algorithm::join(vec_str, " + ").c_str());
-                }
-            }
-        }
-        outfile->Printf("\n\n");
-
-
+        analyze_excitations();
 
         compute_transition_moments();
+
         double mixlet_exc_energy = E_ - ground_state_energy;
         outfile->Printf("  Excited mixed state   : excitation energy = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
                 mixlet_exc_energy,mixlet_exc_energy * pc_hartree2ev, mixlet_exc_energy * pc_hartree2wavenumbers);
@@ -1697,7 +1636,67 @@ void UCKS::save_information()
 //    }
 }
 
+void UCKS::analyze_excitations()
+{
+    CharacterTable ct = KS::molecule_->point_group()->char_table();
 
+    outfile->Printf("\n\n  Analysis of the hole/particle MOs in terms of the ground state DFT MOs");
+    TempMatrix->gemm(false,false,1.0,S_,dets[0]->Ca(),0.0);
+    SharedMatrix ChSCa(new Matrix(Ch_->colspi(),dets[0]->Ca()->colspi()));
+    ChSCa->gemm(true,false,1.0,Ch_,TempMatrix,0.0);
+    for (int h = 0; h < nirrep_; ++h){
+        for (int p = 0; p < Ch_->colspi()[h]; ++p){
+            double sum = 0.0;
+            for (int q = 0; q < Ch_->rowspi()[h]; ++q){
+                sum += std::fabs(Ch_->get(h,q,p));
+            }
+            if (sum > 1.0e-3){
+                std::vector<std::pair<double,int> > pair_occ_mo;
+                for (int q = 0; q < Ca_->colspi()[h]; ++q){
+                    pair_occ_mo.push_back(std::make_pair(std::pow(ChSCa->get(h,p,q),2.0),q + 1));
+                }
+                std::sort(pair_occ_mo.begin(),pair_occ_mo.end());
+                std::reverse(pair_occ_mo.begin(),pair_occ_mo.end());
+                std::vector<std::string> vec_str;
+                for (auto occ_mo : pair_occ_mo){
+                    if (occ_mo.first > 0.01){
+                        vec_str.push_back(boost::str(boost::format(" %.1f%% %d%s")  % (occ_mo.first*100.0)  % occ_mo.second % ct.gamma(h).symbol()));
+                    }
+                }
+                outfile->Printf("\n  Hole:     %6d%s = %s",p,ct.gamma(h).symbol(),boost::algorithm::join(vec_str, " + ").c_str());
+            }
+        }
+    }
+
+
+    TempMatrix->gemm(false,false,1.0,S_,dets[0]->Ca(),0.0);
+    SharedMatrix CpSCa(new Matrix(Cp_->colspi(),dets[0]->Ca()->colspi()));
+    CpSCa->gemm(true,false,1.0,Cp_,TempMatrix,0.0);
+    for (int h = 0; h < nirrep_; ++h){
+        for (int p = 0; p < Cp_->colspi()[h]; ++p){
+            double sum = 0.0;
+            for (int q = 0; q < Cp_->rowspi()[h]; ++q){
+                sum += std::fabs(Cp_->get(h,q,p));
+            }
+            if (sum > 1.0e-3){
+                std::vector<std::pair<double,int> > pair_occ_mo;
+                for (int q = 0; q < Ca_->colspi()[h]; ++q){
+                    pair_occ_mo.push_back(std::make_pair(std::pow(CpSCa->get(h,p,q),2.0),q + 1));
+                }
+                std::sort(pair_occ_mo.begin(),pair_occ_mo.end());
+                std::reverse(pair_occ_mo.begin(),pair_occ_mo.end());
+                std::vector<std::string> vec_str;
+                for (auto occ_mo : pair_occ_mo){
+                    if (occ_mo.first > 0.01){
+                        vec_str.push_back(boost::str(boost::format(" %.1f%% %d%s")  % (occ_mo.first*100.0)  % occ_mo.second % ct.gamma(h).symbol()));
+                    }
+                }
+                outfile->Printf("\n  Particle: %6d%s = %s",p,ct.gamma(h).symbol(),boost::algorithm::join(vec_str, " + ").c_str());
+            }
+        }
+    }
+    outfile->Printf("\n\n");
+}
 
 void UCKS::compute_transition_moments()
 {
@@ -2282,11 +2281,21 @@ double UCKS::compute_S_plus_triplet_correction()
             state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
             ct.gamma(excited_state_symmetry_).symbol(),
             triplet_exc_energy,triplet_exc_energy * pc_hartree2ev, triplet_exc_energy * pc_hartree2wavenumbers);
+
     double singlet_exc_energy = 2.0 * E_ - triplet_energy - ground_state_energy;
     outfile->Printf("  Excited singlet state %d-%s : excitation energy (S+) = %9.6f Eh = %8.4f eV = %9.1f cm**-1 \n",
             state_ + (ground_state_symmetry_ == excited_state_symmetry_ ? 1 : 0),
             ct.gamma(excited_state_symmetry_).symbol(),
             singlet_exc_energy,singlet_exc_energy * pc_hartree2ev, singlet_exc_energy * pc_hartree2wavenumbers);
+
+
+    Process::environment.globals["OCDFT TRIPLET ENERGY"] = triplet_energy;
+    Process::environment.globals["OCDFT SINGLET ENERGY"] = singlet_exc_energy + ground_state_energy;
+
+
+    Process::environment.globals["OCDFT TRIPLET ENERGY STATE " + std::to_string(state_)] = triplet_energy;
+    Process::environment.globals["OCDFT SINGLET ENERGY STATE " + std::to_string(state_)] = singlet_exc_energy + ground_state_energy;
+
 
     outfile->Printf("\n\n");
     compute_spin_contamination();
