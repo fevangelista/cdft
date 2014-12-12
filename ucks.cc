@@ -539,7 +539,7 @@ void UCKS::form_C()
         // Excited state: use a special form_C
         form_C_ee();
     }
-    // ORTHOGONALITY CHECK!!!
+    // Check Orthogonality
     ortho_check(Ca_, S_);
 }
 
