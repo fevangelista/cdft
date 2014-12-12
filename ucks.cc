@@ -539,6 +539,8 @@ void UCKS::form_C()
         // Excited state: use a special form_C
         form_C_ee();
     }
+    // ORTHOGONALITY CHECK!!!
+    ortho_check(Ca_, S_);
 }
 
 void UCKS::form_C_ee()
@@ -2627,5 +2629,31 @@ void UCKS::copy_block(SharedMatrix A, double alpha, SharedMatrix B, double beta,
         }
     }
 }
+void UCKS::ortho_check(SharedMatrix C, SharedMatrix S)
+    {
+        SharedMatrix CSC(S->clone());
+        CSC->transform(C);
+        double diag = 0.0;
+        double off_diag = 0.0;
+        for(int h = 0; h < nirrep_; ++h){
+            for(int i = 0; i < nsopi_[h]; ++i){
+                for(int j = 0; j < nsopi_[h]; ++j)
+                    if (i==j){
+                        diag += std::abs(CSC->get(i,j));
+                    }
+                    else{
+                        off_diag += std::abs(CSC->get(i,j));
+                    }
+            }
+        }
+        if(off_diag > 1e-4)
+        {
+            	 outfile->Printf("\n***** WARNING!: ORBITALS HAVE LOST ORTHOGONALITY ******");
+        }
+        else
+        {
+                 outfile->Printf("\n****** Orthogonality Check Passed ********\n");
+        }
+    }
 
 }} // Namespaces

@@ -231,6 +231,7 @@ protected:
     void copy_block(SharedMatrix A, double alpha, SharedMatrix B, double beta, Dimension rowspi, Dimension colspi,
                     Dimension A_rows_offsetpi = Dimension(8), Dimension A_cols_offsetpi = Dimension(8),
                     Dimension B_rows_offsetpi = Dimension(8), Dimension B_cols_offsetpi = Dimension(8));
+    void ortho_check(SharedMatrix C, SharedMatrix S);
     // ROKS functions and variables
     /// Do ROKS?
     bool do_roks;
