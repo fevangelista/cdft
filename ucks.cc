@@ -2638,22 +2638,14 @@ void UCKS::ortho_check(SharedMatrix C, SharedMatrix S)
         for(int h = 0; h < nirrep_; ++h){
             for(int i = 0; i < nsopi_[h]; ++i){
                 for(int j = 0; j < nsopi_[h]; ++j)
-                    if (i==j){
-                        diag += std::abs(CSC->get(i,j));
-                    }
-                    else{
-                        off_diag += std::abs(CSC->get(i,j));
-                    }
+                    if (i==j){diag += std::abs(CSC->get(i,j));}
+                    else{off_diag += std::abs(CSC->get(i,j));}
             }
         }
-        if(off_diag > 1e-4)
-        {
-            	 outfile->Printf("\n***** WARNING!: ORBITALS HAVE LOST ORTHOGONALITY ******");
-        }
-        else
-        {
-                 outfile->Printf("\n****** Orthogonality Check Passed ********\n");
-        }
+        if(off_diag > 1e-4){outfile->Printf("\n***** WARNING!: ORBITALS HAVE LOST ORTHOGONALITY ******");
+			    outfile->Printf("\n***** Off-Diagonal Elements are %f  *******************", off_diag);
+		            outfile->Printf("\n*********** Should be Zero ****************************");}
+        else		   {outfile->Printf("\n****** Orthogonality Check Passed ********\n");}
     }
 
 }} // Namespaces
