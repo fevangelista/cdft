@@ -1,7 +1,8 @@
+#include "boost/tuple/tuple.hpp"
+#include "boost/tuple/tuple_comparison.hpp"
 
-#include "ucks.h"
 #include <physconst.h>
-#include <libmints/view.h>
+
 #include <libmints/mints.h>
 #include <libtrans/integraltransform.h>
 #include <libfock/apps.h>
@@ -11,16 +12,15 @@
 #include <liboptions/liboptions.h>
 #include <libciomr/libciomr.h>
 #include <libqt/qt.h>
-#include "boost/tuple/tuple.hpp"
-#include "boost/tuple/tuple_comparison.hpp"
 #include <libiwl/iwl.hpp>
-#include <psifiles.h>
+
+#include "ocdft.h"
 
 using namespace psi;
 
 namespace psi{ namespace scf{
 
-std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDeterminant B)
+std::pair<double,double> UOCDFT::matrix_element(SharedDeterminant A, SharedDeterminant B)
 {
     double overlap = 0.0;
     double hamiltonian = 0.0;
@@ -399,7 +399,7 @@ std::pair<double,double> UCKS::matrix_element(SharedDeterminant A, SharedDetermi
 }
 
 boost::tuple<SharedMatrix,SharedMatrix,SharedVector,double>
-UCKS::corresponding_orbitals(SharedMatrix A, SharedMatrix B, Dimension dima, Dimension dimb)
+UOCDFT::corresponding_orbitals(SharedMatrix A, SharedMatrix B, Dimension dima, Dimension dimb)
 {
     // Form <B|S|A>
     TempMatrix->gemm(false,false,1.0,S_,A,0.0);

@@ -17,3 +17,7 @@ tests/junk/
 inputalt.dat
 psi.clean
 stashed.changes
+
+CDFT.creator.user.3.2-pre1
+attic/
+tests/ocdft-1/output.dat

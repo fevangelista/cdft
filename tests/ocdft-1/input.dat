@@ -38,6 +38,6 @@ set dft_functional B3LYP
 
 energy('cdft')
 
-compare_values(refdft, get_variable("DFT ENERGY"),9, "DFT energy") #TEST
-compare_values(refocdft_singlet_spin, get_variable("OCDFT SINGLET ENERGY"),9, "OCDFT singlet energy") #TEST
-compare_values(refocdft_triplet_spin, get_variable("OCDFT TRIPLET ENERGY"),9, "OCDFT triplet energy") #TEST
+compare_values(refdft, get_variable("DFT ENERGY"),8, "DFT energy") #TEST
+compare_values(refocdft_singlet_spin, get_variable("OCDFT SINGLET ENERGY"),8, "OCDFT singlet energy") #TEST
+compare_values(refocdft_triplet_spin, get_variable("OCDFT TRIPLET ENERGY"),8, "OCDFT triplet energy") #TEST

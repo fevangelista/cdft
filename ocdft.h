@@ -2,21 +2,26 @@
 #define _ocdft_h_
 
 #include "boost/tuple/tuple.hpp"
+
 #include <libscf_solver/ks.h>
-#include "constraint.h"
+
 #include "determinant.h"
 
 namespace psi{
 class Options;
 namespace scf{
 
-/// A class for unrestricted constrained Kohn-Sham theory
-class UKS_OCDFT : public UKS {
+/// A class for unrestricted Orthogonality Constrained DFT
+class UOCDFT : public UKS {
 public:
-    explicit UKS_OCDFT(Options &options, boost::shared_ptr<PSIO> psio);
-    explicit UKS_OCDFT(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<Wavefunction> ref_scf, int state);
-    explicit UKS_OCDFT(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<Wavefunction> ref_scf, int state, int symmetry);
-    virtual ~UKS_OCDFT();
+    explicit UOCDFT(Options &options, boost::shared_ptr<PSIO> psio);
+    explicit UOCDFT(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<Wavefunction> ref_scf, int state);
+    explicit UOCDFT(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<Wavefunction> ref_scf, int state, int symmetry);
+    virtual ~UOCDFT();
+
+    double singlet_exc_energy_s_plus() {return singlet_exc_energy_s_plus_;}
+    double oscillator_strength_s_plus() {return oscillator_strength_s_plus_;}
+
 protected:
     /// The fragment constraint matrices in the SO basis
     std::vector<SharedMatrix> W_frag;
@@ -48,10 +53,13 @@ protected:
     int excited_state_symmetry_;
     /// Excited state number, starting from one
     int state_;
-//    /// Hole level
-//    int hole_num_;
-//    /// Particle level
-//    int part_num_;
+
+    double singlet_exc_energy_s_plus_;
+    double triplet_exc_energy_s_plus;
+    double singlet_exc_energy_ci;
+    double triplet_exc_energy_ci;
+    double oscillator_strength_s_plus_;
+    double oscillator_strength_ci;
 
     // Information about the excited states
     /// Determinant information for each electronic state
@@ -126,8 +134,6 @@ protected:
     SharedMatrix gs_Fa_;
     /// The ground state beta Fock matrix
     SharedMatrix gs_Fb_;
-    /// The constraint objects
-    std::vector<SharedConstraint> constraints;
 
     /// A temporary matrix
     SharedMatrix TempMatrix;
@@ -143,30 +149,6 @@ protected:
 
     /// A copy of the one-electron potential
     SharedMatrix H_copy;
-    /// The Lagrange multipliers, Vc in Phys. Rev. A, 72, 024502 (2005)
-    SharedVector Vc;
-    /// A copy of the Lagrange multipliers from the previous cycle
-    SharedVector Vc_old;
-    /// Optimize the Lagrange multiplier
-    bool optimize_Vc;
-    /// The number of constraints
-    int nconstraints;
-    /// The gradient of the constrained functional W
-    SharedVector gradW;
-    /// A copy of the gradient of W from the previous cycle
-    SharedVector gradW_old;
-    /// The MO response contribution to the gradient of W
-    SharedVector gradW_mo_resp;
-    /// The hessian of the constrained functional W
-    SharedMatrix hessW;
-    /// The hessian of the constrained functional W
-    SharedMatrix hessW_BFGS;
-    /// The number of fragments
-    int nfrag;
-    /// The nuclear charge of a fragment
-    std::vector<double> frag_nuclear_charge;
-    /// Convergency threshold for the gradient of the constraint
-    double gradW_threshold_;
     /// Flag to save the one-electron part of the Hamiltonian
     bool save_H_;
     /// A shift to apply to the virtual orbitals to improve convergence
@@ -179,16 +161,6 @@ protected:
     void init();
     /// Initialize the exctiation functions
     void init_excitation( boost::shared_ptr<Wavefunction> ref_scf);
-    /// Build the fragment constrain matrices in the SO basis
-    void build_W_frag();
-    /// Build the excitation constraint matrices in the SO basis
-    void gradient_of_W();
-    /// Compute the hessian of W with respect to the Lagrange multiplier
-    void hessian_of_W();
-    /// Update the hessian using the BFGS formula
-    void hessian_update(SharedMatrix h, SharedVector dx, SharedVector dg);
-    /// Optimize the constraint
-    void constraint_optimization();
     /// The constrained hole/particle algorithm for computing the orbitals
     void form_C_ee();
     /// Finds the optimal holes
@@ -221,6 +193,8 @@ protected:
     boost::tuple<SharedMatrix,SharedMatrix,SharedVector,double> corresponding_orbitals(SharedMatrix A, SharedMatrix B, Dimension dima, Dimension dimb);
     /// Form_C for the beta MOs
     void form_C_beta();
+    /// Checks if the orbital defined by the matrix are orthogonal with respect to the metric S
+    void orthogonality_check(SharedMatrix C, SharedMatrix S);
 
     // Helper functions
     /// Extract a block from matrix A and copies it to B
@@ -231,9 +205,6 @@ protected:
     void copy_block(SharedMatrix A, double alpha, SharedMatrix B, double beta, Dimension rowspi, Dimension colspi,
                     Dimension A_rows_offsetpi = Dimension(8), Dimension A_cols_offsetpi = Dimension(8),
                     Dimension B_rows_offsetpi = Dimension(8), Dimension B_cols_offsetpi = Dimension(8));
-    // ROKS functions and variables
-    /// Do ROKS?
-    bool do_roks;
 
     std::pair<double,double> matrix_element(SharedDeterminant A, SharedDeterminant B);
 

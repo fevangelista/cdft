@@ -1,5 +1,10 @@
-#include "ucks.h"
+#include <boost/tuple/tuple_comparison.hpp>
+#include <boost/format.hpp>
+#include <boost/algorithm/string/join.hpp>
+
 #include <physconst.h>
+#include <psifiles.h>
+
 #include <libmints/view.h>
 #include <libmints/mints.h>
 #include <libfock/apps.h>
@@ -9,11 +14,9 @@
 #include <liboptions/liboptions.h>
 #include <libciomr/libciomr.h>
 #include <libqt/qt.h>
-#include "boost/tuple/tuple_comparison.hpp"
-#include <boost/format.hpp>
-#include <boost/algorithm/string/join.hpp>
 #include <libiwl/iwl.hpp>
-#include <psifiles.h>
+
+#include "ocdft.h"
 
 #define DEBUG_OCDFT 0
 
@@ -22,56 +25,64 @@
     EXP \
     outfile->Printf("  done."); fflush(outfile); \
 
-
 using namespace psi;
 
 namespace psi{ namespace scf{
 
-UKS_OCDFT::UKS_OCDFT(Options &options, boost::shared_ptr<PSIO> psio)
+UOCDFT::UOCDFT(Options &options, boost::shared_ptr<PSIO> psio)
 : UKS(options, psio),
   do_excitation(false),
   do_symmetry(false),
-  optimize_Vc(false),
-  gradW_threshold_(1.0e-9),
-  nW_opt(0),
   ground_state_energy(0.0),
   ground_state_symmetry_(0),
   excited_state_symmetry_(0),
-  state_(0)
+  state_(0),
+  singlet_exc_energy_s_plus_(0.0),
+  triplet_exc_energy_s_plus(0.0),
+  singlet_exc_energy_ci(0.0),
+  triplet_exc_energy_ci(0.0),
+  oscillator_strength_s_plus_(0.0),
+  oscillator_strength_ci(0.0)
 {
     init();
     gs_Fa_ = Fa_;
     gs_Fb_ = Fb_;
 }
 
-UKS_OCDFT::UKS_OCDFT(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<Wavefunction> ref_scf, int state)
+UOCDFT::UOCDFT(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<Wavefunction> ref_scf, int state)
 : UKS(options, psio),
   do_excitation(true),
   do_symmetry(false),
-  optimize_Vc(false),
-  gradW_threshold_(1.0e-9),
-  nW_opt(0),
   ground_state_energy(0.0),
   ground_state_symmetry_(0),
   excited_state_symmetry_(0),
-  state_(state)
+  state_(state),
+  singlet_exc_energy_s_plus_(0.0),
+  triplet_exc_energy_s_plus(0.0),
+  singlet_exc_energy_ci(0.0),
+  triplet_exc_energy_ci(0.0),
+  oscillator_strength_s_plus_(0.0),
+  oscillator_strength_ci(0.0)
 {
     init();
     init_excitation(ref_scf);
     ground_state_energy = dets[0]->energy();
 }
 
-UKS_OCDFT::UKS_OCDFT(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<Wavefunction> ref_scf, int state,int symmetry)
+UOCDFT::UOCDFT(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr<Wavefunction> ref_scf, int state,int symmetry)
 : UKS(options, psio),
   do_excitation(true),
   do_symmetry(true),
-  optimize_Vc(false),
-  gradW_threshold_(1.0e-9),
-  nW_opt(0),
   ground_state_energy(0.0),
   ground_state_symmetry_(0),
   excited_state_symmetry_(symmetry),
-  state_(state)
+  state_(state),
+  singlet_exc_energy_s_plus_(0.0),
+  triplet_exc_energy_s_plus(0.0),
+  singlet_exc_energy_ci(0.0),
+  triplet_exc_energy_ci(0.0),
+  oscillator_strength_s_plus_(0.0),
+  oscillator_strength_ci(0.0)
 {
     init();
     init_excitation(ref_scf);
@@ -79,62 +90,20 @@ UKS_OCDFT::UKS_OCDFT(Options &options, boost::shared_ptr<PSIO> psio, boost::shar
     ground_state_symmetry_ = dets[0]->symmetry();
 }
 
-void UKS_OCDFT::init()
+void UOCDFT::init()
 {
-    outfile->Printf("\n  ==> Constrained DFT (UCKS) <==\n\n");
+    outfile->Printf("\n  ==> Unrestricted Orthogonality Constrained DFT (OCDFT) <==\n\n");
 
-
-    optimize_Vc = false;
-    if(KS::options_["CHARGE"].size() > 0 or KS::options_["SPIN"].size() > 0){
-        KS::options_.get_bool("OPTIMIZE_VC");
-    }
-    gradW_threshold_ = KS::options_.get_double("W_CONVERGENCE");
-    outfile->Printf("  gradW threshold = :%9.2e\n",gradW_threshold_);
-    nfrag = basisset()->molecule()->nfragments();
-    outfile->Printf("  Number of fragments: %d\n",nfrag);
-    level_shift_ = KS::options_.get_double("LEVEL_SHIFT");
-    outfile->Printf("  Level shift: %f\n",level_shift_);
-
-    build_W_frag();
-
-    // Check the option CHARGE, if it is defined use it to define the constrained charges, "-" skips the constraint
-    for (int f = 0; f < int(KS::options_["CHARGE"].size()); ++f){
-        if(KS::options_["CHARGE"][f].to_string() != "-"){
-            double constrained_charge = KS::options_["CHARGE"][f].to_double();
-            double Nc = frag_nuclear_charge[f] - constrained_charge;
-            SharedConstraint constraint(new Constraint(W_frag[f],Nc,1.0,1.0,"charge(" + to_string(f) + ")"));
-            constraints.push_back(constraint);
-            outfile->Printf("  Fragment %d: constrained charge = %f .\n",f,constrained_charge);
-        }else{
-            outfile->Printf("  Fragment %d: no charge constraint specified .\n",f);
-        }
-    }
-    // Check the option SPIN, if it is defined use it to define the constrained spins, "-" skips the constraint
-    for (int f = 0; f < int(KS::options_["SPIN"].size()); ++f){
-        if(KS::options_["SPIN"][f].to_string() != "-"){
-            double constrained_spin = KS::options_["SPIN"][f].to_double();
-            double Nc = constrained_spin;
-            SharedConstraint constraint(new Constraint(W_frag[f],Nc,0.5,-0.5,"spin(" + to_string(f) + ")"));
-            constraints.push_back(constraint);
-            outfile->Printf("  Fragment %d: constrained spin   = %f .\n",f,constrained_spin);
-        }else{
-            outfile->Printf("  Fragment %d: no spin constraint specified .\n",f);
-        }
-    }
+//    level_shift_ = KS::options_.get_double("LEVEL_SHIFT");
+//    outfile->Printf("  Level shift: %f\n",level_shift_);
 
     saved_naholepi_ = Dimension(nirrep_,"Saved number of holes per irrep");
     saved_napartpi_ = Dimension(nirrep_,"Saved number of particles per irrep");
     zero_dim_ = Dimension(nirrep_);
 
-    nconstraints = static_cast<int>(constraints.size());
 
     // Allocate vectors
     TempVector = factory_->create_shared_vector("SVD sigma");
-    gradW = SharedVector(new Vector("gradW",nconstraints));
-    gradW_old = SharedVector(new Vector("gradW_old",nconstraints));
-    gradW_mo_resp = SharedVector(new Vector("gradW_mo_resp",nconstraints));
-    Vc = SharedVector(new Vector("Vc",nconstraints));
-    Vc_old = SharedVector(new Vector("Vc_old",nconstraints));
 
     // Allocate matrices
     H_copy = factory_->create_shared_matrix("H_copy");
@@ -142,25 +111,10 @@ void UKS_OCDFT::init()
     TempMatrix2 = factory_->create_shared_matrix("Temp2");
     Dolda_ = factory_->create_shared_matrix("Dold alpha");
     Doldb_ = factory_->create_shared_matrix("Dold beta");
-    hessW = SharedMatrix(new Matrix("hessW",nconstraints,nconstraints));
-    hessW_BFGS = SharedMatrix(new Matrix("hessW_BFGS",nconstraints,nconstraints));
-
-    for (int f = 0; f < std::min(int(KS::options_["VC"].size()),nconstraints); ++f){
-        if(KS::options_["VC"][f].to_string() != "-"){
-            Vc->set(f,KS::options_["VC"][f].to_double());
-        }else{
-            Vc->set(f,0.0);
-        }
-        outfile->Printf("  The Lagrange multiplier for constraint %d will be initialized to Vc = %f .\n",f,KS::options_["VC"][f].to_double());
-    }
-
-    if(optimize_Vc){
-        outfile->Printf("  The constraint(s) will be optimized.\n");
-    }
     save_H_ = true;
 }
 
-void UKS_OCDFT::init_excitation(boost::shared_ptr<Wavefunction> ref_scf)
+void UOCDFT::init_excitation(boost::shared_ptr<Wavefunction> ref_scf)
 {
     // Never recalculate the socc and docc arrays
     input_socc_ = true;
@@ -184,7 +138,7 @@ void UKS_OCDFT::init_excitation(boost::shared_ptr<Wavefunction> ref_scf)
 
     // Save the reference state MOs and occupation numbers
     outfile->Printf("  Saving the reference orbitals for an excited state computation\n");
-    UKS_OCDFT* ucks_ptr = dynamic_cast<UKS_OCDFT*>(ref_scf.get());
+    UOCDFT* ucks_ptr = dynamic_cast<UOCDFT*>(ref_scf.get());
 
     gs_Fa_ = ucks_ptr->gs_Fa_;
     gs_Fb_ = ucks_ptr->gs_Fb_;
@@ -281,11 +235,11 @@ void UKS_OCDFT::init_excitation(boost::shared_ptr<Wavefunction> ref_scf)
     project_naholepi_.print();
 }
 
-UKS_OCDFT::~UKS_OCDFT()
+UOCDFT::~UOCDFT()
 {
 }
 
-void UKS_OCDFT::guess()
+void UOCDFT::guess()
 {
     if(do_excitation){
         iteration_ = 0;
@@ -300,61 +254,7 @@ void UKS_OCDFT::guess()
     }
 }
 
-void UKS_OCDFT::build_W_frag()
-{
-    // Compute the overlap matrix
-    boost::shared_ptr<BasisSet> basisset_ = basisset();
-    boost::shared_ptr<Molecule> mol = basisset_->molecule();
-    boost::shared_ptr<OneBodyAOInt> overlap(integral_->ao_overlap());
-    SharedMatrix S_ao(new Matrix("S_ao",basisset_->nbf(),basisset_->nbf()));
-    overlap->compute(S_ao);
-
-    // Form the S^(1/2) matrix
-    S_ao->power(1.0/2.0);
-
-    boost::shared_ptr<PetiteList> pet(new PetiteList(basisset_, integral_));
-    SharedMatrix AO2SO_ = pet->aotoso();
-
-    // Compute the W matrix for each fragment
-    int min_a = 0;
-    int max_a = 0;
-    for (int f = 0; f < nfrag; ++f){
-        std::vector<int> flist;
-        std::vector<int> glist;
-        flist.push_back(f);
-        boost::shared_ptr<Molecule> frag = mol->extract_subsets(flist,glist);
-
-        // Compute the nuclear charge on each fragment
-        double frag_Z = 0.0;
-        for (int a = 0; a < frag->natom(); ++a){
-            frag_Z += frag->Z(a);
-        }
-        frag_nuclear_charge.push_back(frag_Z);
-
-        // Form a copy of S_ao and zero the rows that are not on this fragment
-        max_a = min_a + frag->natom();
-        SharedMatrix S_f(S_ao->clone());
-        for (int rho = 0; rho < basisset_->nbf(); rho++) {
-            int shell = basisset_->function_to_shell(rho);
-            int A = basisset_->shell_to_center(shell);
-            if (A < min_a or max_a <= A){
-                S_f->scale_row(0,rho,0.0);
-            }
-        }
-
-        // Form W_f = (S_f)^T * S_f and transform it to the SO basis
-        SharedMatrix W_f(new Matrix("W_f",basisset_->nbf(),basisset_->nbf()));
-        SharedMatrix W_f_so(factory_->create_matrix("W_f_so"));
-        W_f->gemm(true, false, 1.0, S_f, S_f, 0.0);
-        W_f_so->apply_symmetry(W_f,AO2SO_);
-
-        // Save W_f_so to the W_so vector
-        W_frag.push_back(W_f_so);
-        min_a = max_a;
-    }
-}
-
-void UKS_OCDFT::save_density_and_energy()
+void UOCDFT::save_density_and_energy()
 {
     Dtold_->copy(Dt_);
     Dolda_->copy(Da_);
@@ -362,7 +262,7 @@ void UKS_OCDFT::save_density_and_energy()
     Eold_ = E_;
 }
 
-void UKS_OCDFT::form_G()
+void UOCDFT::form_G()
 {
     timer_on("Form V");
     form_V();
@@ -448,7 +348,7 @@ void UKS_OCDFT::form_G()
     }
 }
 
-void UKS_OCDFT::form_F()
+void UOCDFT::form_F()
 {
     // On the first iteration save H_
     if (save_H_){
@@ -458,24 +358,12 @@ void UKS_OCDFT::form_F()
 
     // Augement the one-electron potential (H_) with the CDFT terms
     H_->copy(H_copy);
-    for (int c = 0; c < nconstraints; ++c){
-        TempMatrix->copy(constraints[c]->W_so());
-        TempMatrix->scale(Vc->get(c) * constraints[c]->weight_alpha());
-        H_->add(TempMatrix);
-    }
     Fa_->copy(H_);
     Fa_->add(Ga_);
 
     H_->copy(H_copy);
-    for (int c = 0; c < nconstraints; ++c){
-        TempMatrix->copy(constraints[c]->W_so());
-        TempMatrix->scale(Vc->get(c) * constraints[c]->weight_beta());
-        H_->add(TempMatrix);
-    }
     Fb_->copy(H_);
     Fb_->add(Gb_);
-
-    gradient_of_W();
 
     // Form the effective Fock matrix
     if(do_excitation){
@@ -509,14 +397,13 @@ void UKS_OCDFT::form_F()
 //        TempMatrix2->subtract(TempMatrix);
     }
 
-
     if (debug_) {
         Fa_->print();
         Fb_->print();
     }
 }
 
-void UKS_OCDFT::form_C()
+void UOCDFT::form_C()
 {
     if(not do_excitation){
         // Ground state: use the default form_C
@@ -537,9 +424,11 @@ void UKS_OCDFT::form_C()
         // Excited state: use a special form_C
         form_C_ee();
     }
+    // Check the orthogonality of the MOs
+    orthogonality_check(Ca_, S_);
 }
 
-void UKS_OCDFT::form_C_ee()
+void UOCDFT::form_C_ee()
 {
     // Compute the hole and the particle states
     compute_holes();
@@ -565,7 +454,7 @@ void UKS_OCDFT::form_C_ee()
     form_C_beta();
 }
 
-void UKS_OCDFT::compute_holes()
+void UOCDFT::compute_holes()
 {
     if(iteration_ > 1){
         // Form the projector Ca Ca^T S Ca_gs
@@ -615,7 +504,7 @@ void UKS_OCDFT::compute_holes()
 #endif
 }
 
-void UKS_OCDFT::compute_particles()
+void UOCDFT::compute_particles()
 {
     if(iteration_ > 1){
         // Form the projector Ca Ca^T S Ca_gs
@@ -664,7 +553,7 @@ void UKS_OCDFT::compute_particles()
 #endif
 }
 
-void UKS_OCDFT::find_ee_occupation(SharedVector lambda_o,SharedVector lambda_v)
+void UOCDFT::find_ee_occupation(SharedVector lambda_o,SharedVector lambda_v)
 {
     // Find the hole/particle pair to follow
     boost::tuple<double,int,int> hole;
@@ -807,7 +696,7 @@ void UKS_OCDFT::find_ee_occupation(SharedVector lambda_o,SharedVector lambda_v)
     outfile->Printf("\n\n");
 }
 
-void UKS_OCDFT::compute_hole_particle_mos()
+void UOCDFT::compute_hole_particle_mos()
 {
     SharedMatrix Ca0 = dets[0]->Ca();
 
@@ -850,7 +739,7 @@ void UKS_OCDFT::compute_hole_particle_mos()
     }
 }
 
-void UKS_OCDFT::diagonalize_F_spectator_relaxed()
+void UOCDFT::diagonalize_F_spectator_relaxed()
 {
     // Form the projector onto the orbitals orthogonal to the holes and particles in the excited state mo representation
     TempMatrix->zero();
@@ -904,7 +793,7 @@ void UKS_OCDFT::diagonalize_F_spectator_relaxed()
     Ca_->copy(TempMatrix);
 }
 
-void UKS_OCDFT::sort_ee_mos()
+void UOCDFT::sort_ee_mos()
 {
     // Set the occupation
     nalphapi_ = gs_nalphapi_ + napartpi_ - naholepi_;
@@ -1015,7 +904,7 @@ void UKS_OCDFT::sort_ee_mos()
     epsilon_a_->copy(*temp_epsilon_a_);
 }
 
-void UKS_OCDFT::diagonalize_F_spectator_unrelaxed()
+void UOCDFT::diagonalize_F_spectator_unrelaxed()
 {
 //    // Frozen spectator orbital algorithm
 //    // Transform the ground state orbitals to the representation which diagonalizes the
@@ -1223,7 +1112,7 @@ void UKS_OCDFT::diagonalize_F_spectator_unrelaxed()
 }
 
 
-void UKS_OCDFT::form_C_beta()
+void UOCDFT::form_C_beta()
 {
     // BETA
     if(KS::options_.get_str("CDFT_EXC_METHOD") != "CHP-FB"){
@@ -1265,211 +1154,12 @@ void UKS_OCDFT::form_C_beta()
     }
 }
 
-/// Gradient of W
-///
-/// Implements Eq. (6) of Phys. Rev. A 72, 024502 (2005) and estimates a correction to the
-/// gradient from the orbital response
-void UKS_OCDFT::gradient_of_W()
-{
-    for (int c = 0; c < nconstraints; ++c){
-        double grad = 0.0;
-        grad  = constraints[c]->weight_alpha() * Da_->vector_dot(constraints[c]->W_so());
-        grad += constraints[c]->weight_beta()  * Db_->vector_dot(constraints[c]->W_so());
-        grad -= constraints[c]->Nc();
-        gradW->set(c,grad);
-    }
-    for (int c = 0; c < nconstraints; ++c){
-        double grad = 0.0;
-        // Transform W_so to the MO basis (alpha)
-        TempMatrix->transform(constraints[c]->W_so(),Ca_);
-        TempMatrix->scale(constraints[c]->weight_alpha());
-        // Transform Fa_ to the MO basis
-        TempMatrix2->transform(Fa_,Ca_);
-        for (int h = 0; h < nirrep_; h++) {
-            int nmo  = nmopi_[h];
-            int nocc = nalphapi_[h];
-            int nvir = nmo - nocc;
-            if (nvir == 0 or nocc == 0) continue;
-            double** Temp_h = TempMatrix->pointer(h);
-            double** Temp2_h = TempMatrix2->pointer(h);
-            for (int i = 0; i < nocc; ++i){
-                for (int a = nocc; a < nmo; ++a){
-                    grad += 2.0 * Temp_h[a][i] * Temp2_h[a][i] / (Temp2_h[i][i] - Temp2_h[a][a]);
-                }
-            }
-        }
-        // Transform W_so to the MO basis (beta)
-        TempMatrix->transform(constraints[c]->W_so(),Cb_);
-        TempMatrix->scale(constraints[c]->weight_beta());
-        // Transform Fb_ to the MO basis
-        TempMatrix2->transform(Fb_,Cb_);
-        for (int h = 0; h < nirrep_; h++) {
-            int nmo  = nmopi_[h];
-            int nocc = nbetapi_[h];
-            int nvir = nmo - nocc;
-            if (nvir == 0 or nocc == 0) continue;
-            double** Temp_h = TempMatrix->pointer(h);
-            double** Temp2_h = TempMatrix2->pointer(h);
-            for (int i = 0; i < nocc; ++i){
-                for (int a = nocc; a < nmo; ++a){
-                    grad += 2.0 * Temp_h[a][i] * Temp2_h[a][i] / (Temp2_h[i][i] - Temp2_h[a][a]);
-                }
-            }
-        }
-        gradW_mo_resp->set(c,grad);
-    }
-    if(nconstraints > 0){
-        for (int c = 0; c < nconstraints; ++c){
-            outfile->Printf("   %-10s: grad = %10.7f    grad (resp) = %10.7f    Vc = %10.7f\n",constraints[c]->type().c_str(),
-                    gradW->get(c),gradW_mo_resp->get(c),Vc->get(c));
-        }
-    }
-}
-
-/// Hessian of W
-///
-/// Implements Eq. (7) of Phys. Rev. A 72, 024502 (2005).
-void UKS_OCDFT::hessian_of_W()
-{
-    outfile->Printf("\n  COMPUTE THE HESSIAN\n\n");
-    for (int c1 = 0; c1 < nconstraints; ++c1){
-        for (int c2 = 0; c2 <= c1; ++c2){
-            double hess = 0.0;
-            // Transform W_so to the MO basis (alpha)
-            TempMatrix->transform(constraints[c1]->W_so(),Ca_);
-            TempMatrix->scale(constraints[c1]->weight_alpha());
-            // Transform W_so to the MO basis (alpha)
-            TempMatrix2->transform(constraints[c2]->W_so(),Ca_);
-            TempMatrix2->scale(constraints[c2]->weight_alpha());
-            for (int h = 0; h < nirrep_; h++) {
-                int nmo  = nmopi_[h];
-                int nocc = nalphapi_[h];
-                int nvir = nmo - nocc;
-                if (nvir == 0 or nocc == 0) continue;
-                double** Temp_h = TempMatrix->pointer(h);
-                double** Temp2_h = TempMatrix2->pointer(h);
-                double* eps = epsilon_a_->pointer(h);
-                for (int i = 0; i < nocc; ++i){
-                    for (int a = nocc; a < nmo; ++a){
-                        hess += 2.0 * Temp_h[i][a] * Temp2_h[a][i] /  (eps[i] - eps[a]);
-                    }
-                }
-            }
-            // Transform W_so to the MO basis (beta)
-            TempMatrix->transform(constraints[c1]->W_so(),Cb_);
-            TempMatrix->scale(constraints[c1]->weight_beta());
-            // Transform W_so to the MO basis (beta)
-            TempMatrix2->transform(constraints[c2]->W_so(),Cb_);
-            TempMatrix2->scale(constraints[c2]->weight_beta());
-            for (int h = 0; h < nirrep_; h++) {
-                int nmo  = nmopi_[h];
-                int nocc = nbetapi_[h];
-                int nvir = nmo - nocc;
-                if (nvir == 0 or nocc == 0) continue;
-                double** Temp_h = TempMatrix->pointer(h);
-                double** Temp2_h = TempMatrix2->pointer(h);
-                double* eps = epsilon_b_->pointer(h);
-                for (int i = 0; i < nocc; ++i){
-                    for (int a = nocc; a < nmo; ++a){
-                        hess += 2.0 * Temp_h[i][a] * Temp2_h[a][i] /  (eps[i] - eps[a]);
-                    }
-                }
-            }
-            hessW->set(c1,c2,hess);
-            hessW->set(c2,c1,hess);
-        }
-    }
-}
-
-/// Apply the BFGS update to the approximate Hessian h[][].
-/// h[][] = Hessian matrix from previous iteration
-/// dx[]  = Step from previous iteration (dx[] = x[] - xp[] where xp[] is docc previous point)
-/// dg[]  = gradient difference (dg = g - gp)
-void UKS_OCDFT::hessian_update(SharedMatrix h, SharedVector dx, SharedVector dg)
-{
-    SharedVector hdx = SharedVector(new Vector("hdx",nconstraints));
-    hdx->gemv(false, 1.0, h.get(), dx.get(), 0.0);
-    double dxhdx = dx->dot(hdx.get());
-    double dxdx  = dx->dot(dx.get());
-    double dxdg  = dx->dot(dg.get());
-    double dgdg  = dg->dot(dg.get());
-
-    if ( (dxdx > 0.0) && (dgdg > 0.0) && (std::fabs(dxdg / std::sqrt(dxdx * dgdg)) > 1.e-8) ) {
-        for (int i = 0; i < nconstraints; ++i) {
-            for (int j = 0; j < nconstraints; ++j) {
-                h->add(i,j,dg->get(i) * dg->get(j) / dxdg - hdx->get(i) * hdx->get(j) / dxhdx);
-            }
-        }
-    }
-    else {
-        outfile->Printf("  BFGS not updating dxdg (%e), dgdg (%e), dxhdx (%f), dxdx(%e)\n" , dxdg, dgdg, dxhdx, dxdx);
-    }
-}
-
-/// Optimize the Lagrange multiplier
-void UKS_OCDFT::constraint_optimization()
-{
-    if(KS::options_.get_str("W_ALGORITHM") == "NEWTON"){
-        // Optimize Vc once you have a good gradient and the gradient is not converged
-        double max_error = 0.0;
-        for (int c = 0; c < nconstraints; ++c){
-            if(std::fabs(gradW->get(c)) > gradW_threshold_){
-                max_error = std::max(max_error,std::fabs(gradW_mo_resp->get(c) / gradW->get(c)));
-            }
-        }
-        // Make sure the component with the largest error is within 10% of the estimate
-        if (max_error < 0.1 and gradW->norm() > gradW_threshold_){
-            outfile->Printf( "  ==> Constraint optimization <==\n");
-            if(nW_opt > 0){
-                SharedVector dVc = SharedVector(new Vector("dVc",nconstraints));
-                dVc->copy(Vc.get());
-                dVc->subtract(Vc_old);
-                SharedVector dgradW = SharedVector(new Vector("dgradW",nconstraints));
-                dgradW->copy(gradW.get());
-                dgradW->subtract(gradW_old);
-                hessian_update(hessW_BFGS, dVc, dgradW);
-                outfile->Printf( "  Hessian update.\n");
-            }else{
-                hessian_of_W();
-                hessW_BFGS->copy(hessW);
-            }
-            hessW_BFGS->print();
-            hessW->print();
-            // First step, do a Newton with the hessW information
-            Vc_old->copy(Vc.get());
-            gradW_old->copy(gradW.get());
-            // Use the Hessian to do a Newton step with trust radius
-            bool warning;
-            SharedMatrix hessW_inv = hessW_BFGS->pseudoinverse(1.0E-10, &warning);
-            if (warning) {
-                outfile->Printf( "  Warning, the inverse Hessian had to be conditioned.\n\n");
-            }
-            SharedVector h_inv_g = SharedVector(new Vector("h_inv_g",nconstraints));
-            h_inv_g->gemv(false, 1.0, hessW_inv.get(), gradW.get(), 0.0);
-
-            // Apply trust radius
-            double step_size = h_inv_g->norm();
-            double threshold = 0.5;
-            if(step_size > threshold){
-                h_inv_g->scale(threshold / step_size);
-            }
-            Vc->subtract(h_inv_g);
-
-            // Reset the DIIS subspace
-            diis_manager_->reset_subspace();
-            nW_opt += 1;
-        }
-    }
-}
-
-double UKS_OCDFT::compute_E()
+double UOCDFT::compute_E()
 {
     // E_CDFT = 2.0 D*H + D*J - \alpha D*K + E_xc - Nc * Vc
     double one_electron_E = Da_->vector_dot(H_);
     one_electron_E += Db_->vector_dot(H_);
-    for (int c = 0; c < nconstraints; ++c){
-        one_electron_E -= Vc->get(c) * constraints[c]->Nc(); // Added the CDFT contribution that is not included in H_
-    }
+
     double coulomb_E = Da_->vector_dot(J_);
     coulomb_E += Db_->vector_dot(J_);
 
@@ -1520,7 +1210,7 @@ double UKS_OCDFT::compute_E()
     return Etotal;
 }
 
-void UKS_OCDFT::damp_update()
+void UOCDFT::damp_update()
 {
     // Turn on damping only for excited state computations
     if(do_excitation){
@@ -1543,7 +1233,7 @@ void UKS_OCDFT::damp_update()
     }
 }
 
-bool UKS_OCDFT::test_convergency()
+bool UOCDFT::test_convergency()
 {
     // energy difference
     double ediff = E_ - Eold_;
@@ -1558,23 +1248,13 @@ bool UKS_OCDFT::test_convergency()
     bool density_test = Drms_ < density_threshold_;
     bool cycle_test = iteration_ > 5;
 
-    if(optimize_Vc){
-        bool constraint_test = gradW->norm() < gradW_threshold_;
-        constraint_optimization();
-        if(energy_test and density_test and constraint_test and cycle_test){
-            return true;
-        }else{
-            return false;
-        }
-    }else{
-        if(energy_test and density_test and cycle_test){
-            return true;
-        }
-        return false;
+    if(energy_test and density_test and cycle_test){
+        return true;
     }
+    return false;
 }
 
-void UKS_OCDFT::save_information()
+void UOCDFT::save_information()
 {
 //    saved_naholepi_ = naholepi_;
 //    saved_napartpi_ = napartpi_;
@@ -1601,6 +1281,7 @@ void UKS_OCDFT::save_information()
             compute_S_plus_triplet_correction();
         }
 
+
         if (do_save_holes){
             // Add the saved holes to the Ch_ matrix
             // The information about previous holes is passed via saved_Ch_
@@ -1624,17 +1305,15 @@ void UKS_OCDFT::save_information()
             napartpi_ += saved_napartpi_;
         }
     }
-    if(KS::options_.get_str("CDFT_EXC_METHOD") == "CIS")
-        cis_excitation_energy();
-
-
+//    if(KS::options_.get_str("CDFT_EXC_METHOD") == "CIS")
+//        cis_excitation_energy();
 //    if(KS::options_["CDFT_BREAK_SYMMETRY"].has_changed()){
 //        spin_adapt_mixed_excitation();
 //        compute_S_plus_triplet_correction();
 //    }
 }
 
-void UKS_OCDFT::analyze_excitations()
+void UOCDFT::analyze_excitations()
 {
     CharacterTable ct = KS::molecule_->point_group()->char_table();
 
@@ -1696,7 +1375,7 @@ void UKS_OCDFT::analyze_excitations()
     outfile->Printf("\n\n");
 }
 
-void UKS_OCDFT::compute_transition_moments()
+void UOCDFT::compute_transition_moments()
 {
     double overlap = 0.0;
     double hamiltonian = 0.0;
@@ -1835,12 +1514,11 @@ void UKS_OCDFT::compute_transition_moments()
 
     // Contract the dipole moment operators with the pseudo-density matrix
     boost::shared_ptr<OEProp> oe(new OEProp());
-    oe->set_title("SCF");
-    oe->add("DIPOLE");
+    oe->set_title("OCDFT TRANSITION");
+    oe->add("TRANSITION_DIPOLE");
     oe->set_Da_so(trDa);
     oe->set_Db_so(trDb);
-    if (WorldComm->me() == 0)
-        outfile->Printf( "  ==> Transition dipole moment computed with OCDFT <==\n\n");
+    outfile->Printf( "  ==> Transition dipole moment computed with OCDFT <==\n\n");
     oe->compute();
 }
 
@@ -1871,7 +1549,7 @@ void UKS_OCDFT::compute_transition_moments()
 //}
 
 
-void UKS_OCDFT::compute_orbital_gradient(bool save_fock)
+void UOCDFT::compute_orbital_gradient(bool save_fock)
 {
     if(not do_excitation){
         UHF::compute_orbital_gradient(save_fock);
@@ -1917,7 +1595,7 @@ void UKS_OCDFT::compute_orbital_gradient(bool save_fock)
     }
 }
 
-void UKS_OCDFT::spin_adapt_mixed_excitation()
+void UOCDFT::spin_adapt_mixed_excitation()
 {
     CharacterTable ct = KS::molecule_->point_group()->char_table();
     SharedDeterminant D1 = SharedDeterminant(new Determinant(E_,Ca_,Cb_,nalphapi_,nbetapi_));
@@ -1955,7 +1633,7 @@ void UKS_OCDFT::spin_adapt_mixed_excitation()
             singlet_exc_energy,singlet_exc_energy * pc_hartree2ev, singlet_exc_energy * pc_hartree2wavenumbers);
 }
 
-double UKS_OCDFT::compute_triplet_correction()
+double UOCDFT::compute_triplet_correction()
 {
     // I. Form the corresponding alpha and beta orbitals, this gives us a way
     // to identify the alpha and beta paired orbitals (singular value ~ 1)
@@ -2144,7 +1822,7 @@ double UKS_OCDFT::compute_triplet_correction()
     return coupling;
 }
 
-double UKS_OCDFT::compute_S_plus_triplet_correction()
+double UOCDFT::compute_S_plus_triplet_correction()
 {
     outfile->Printf("\n  ==> Spin-adaptation correction using S+ <==\n");
     CharacterTable ct = KS::molecule_->point_group()->char_table();
@@ -2290,9 +1968,20 @@ double UKS_OCDFT::compute_S_plus_triplet_correction()
     Process::environment.globals["OCDFT TRIPLET ENERGY"] = triplet_energy;
     Process::environment.globals["OCDFT SINGLET ENERGY"] = singlet_exc_energy + ground_state_energy;
 
-
     Process::environment.globals["OCDFT TRIPLET ENERGY STATE " + std::to_string(state_)] = triplet_energy;
     Process::environment.globals["OCDFT SINGLET ENERGY STATE " + std::to_string(state_)] = singlet_exc_energy + ground_state_energy;
+
+    // Save the excitation energy
+    singlet_exc_energy_s_plus_ = singlet_exc_energy;
+    triplet_exc_energy_s_plus = triplet_energy - ground_state_energy;
+
+    double dx = Process::environment.globals["OCDFT TRANSITION DIPOLE X"] / pc_dipmom_au2debye;
+    double dy = Process::environment.globals["OCDFT TRANSITION DIPOLE Y"] / pc_dipmom_au2debye;
+    double dz = Process::environment.globals["OCDFT TRANSITION DIPOLE Z"] / pc_dipmom_au2debye;
+
+    oscillator_strength_s_plus_ = 2./3. * singlet_exc_energy_s_plus_ * (dx * dx + dy * dy + dz * dz);
+
+    outfile->Printf( "\n  Transition Dipole Moment = (%f,%f,%f)",dx,dy,dz);
 
 
     outfile->Printf("\n\n");
@@ -2315,7 +2004,7 @@ double UKS_OCDFT::compute_S_plus_triplet_correction()
     return singlet_exc_energy;
 }
 
-void UKS_OCDFT::cis_excitation_energy()
+void UOCDFT::cis_excitation_energy()
 {
 
 //    CharacterTable ct = KS::molecule_->point_group()->char_table();
@@ -2562,7 +2251,7 @@ void UKS_OCDFT::cis_excitation_energy()
 //    }
 //}
 
-void UKS_OCDFT::extract_square_subblock(SharedMatrix A, SharedMatrix B, bool occupied, Dimension npi, double diagonal_shift)
+void UOCDFT::extract_square_subblock(SharedMatrix A, SharedMatrix B, bool occupied, Dimension npi, double diagonal_shift)
 {
     // Set the diagonal of B to diagonal_shift
     B->identity();
@@ -2584,7 +2273,7 @@ void UKS_OCDFT::extract_square_subblock(SharedMatrix A, SharedMatrix B, bool occ
     }
 }
 
-void UKS_OCDFT::copy_subblock(SharedMatrix A, SharedMatrix B, Dimension rowspi, Dimension colspi, bool occupied)
+void UOCDFT::copy_subblock(SharedMatrix A, SharedMatrix B, Dimension rowspi, Dimension colspi, bool occupied)
 {
     for (int h = 0; h < nirrep_; ++h){
         int nrows = occupied ? rowspi[h] : nmopi_[h] - rowspi[h];
@@ -2603,7 +2292,7 @@ void UKS_OCDFT::copy_subblock(SharedMatrix A, SharedMatrix B, Dimension rowspi, 
     }
 }
 
-void UKS_OCDFT::copy_block(SharedMatrix A, double alpha, SharedMatrix B, double beta, Dimension rowspi, Dimension colspi,
+void UOCDFT::copy_block(SharedMatrix A, double alpha, SharedMatrix B, double beta, Dimension rowspi, Dimension colspi,
                       Dimension A_rows_offsetpi, Dimension A_cols_offsetpi,
                       Dimension B_rows_offsetpi, Dimension B_cols_offsetpi)
 {
@@ -2623,6 +2312,29 @@ void UKS_OCDFT::copy_block(SharedMatrix A, double alpha, SharedMatrix B, double 
                 }
             }
         }
+    }
+}
+
+void UOCDFT::orthogonality_check(SharedMatrix C, SharedMatrix S)
+{
+    SharedMatrix CSC(S->clone());
+    CSC->transform(C);
+    double diag = 0.0;
+    double off_diag = 0.0;
+    for(int h = 0; h < nirrep_; ++h){
+        for(int i = 0; i < nsopi_[h]; ++i){
+            for(int j = 0; j < nsopi_[h]; ++j)
+                if (i==j){
+                    diag += std::fabs(CSC->get(h,i,j));
+                }
+                else{
+                    off_diag += std::fabs(CSC->get(h,i,j));
+                }
+        }
+    }
+    if(off_diag > 1e-4){
+        outfile->Printf("\n***** WARNING!: ORBITALS HAVE LOST ORTHOGONALITY ******");
+        outfile->Printf("\n***** Sum of the Off-Diagonal Elements of S: %f  *******************", off_diag);
     }
 }
 

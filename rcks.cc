@@ -220,9 +220,8 @@ bool RCKS::test_convergency()
     if(optimize_Vc){
         constraint_optimization();
         return (fabs(ediff) < energy_threshold_ and Drms_ < density_threshold_ and std::fabs(gradW) < gradW_threshold_);
-    }else{
-        (fabs(ediff) < energy_threshold_ and Drms_ < density_threshold_);
     }
+    return (fabs(ediff) < energy_threshold_ and Drms_ < density_threshold_);
 }
 
 /// Gradient of W
