@@ -1500,15 +1500,18 @@ void UOCDFT::compute_transition_moments()
 
     int i_AB_h = i_A_h ^ i_B_h;
 
+    // For a single noncoincidence the matrix element of <A|mu|B> = tilde{S}_AB * <phi^A_i|mu|phi^B_i>.
+    // There is no contribution from the beta orbitals.
+
     SharedMatrix trDa = SharedMatrix(new Matrix("Transition Density Matrix (alpha)",nsopi_,nsopi_,i_AB_h));
-    SharedMatrix trDb = SharedMatrix(new Matrix("Transition Density Matrix (alpha)",nsopi_,nsopi_));
+    SharedMatrix trDb = SharedMatrix(new Matrix("Transition Density Matrix (beta)",nsopi_,nsopi_));
     trDb->zero();
     double** ca = ACa->pointer(i_A_h);
     double** cb = BCa->pointer(i_B_h);
     double** da = trDa->pointer(i_AB_h);
     for (int mu = 0; mu < nsopi_[i_A_h]; ++mu){
         for (int nu = 0; nu < nsopi_[i_B_h]; ++nu){
-            da[nu][mu] = ca[mu][i_A_mo] * cb[nu][i_B_mo];
+            da[nu][mu] = Stilde * ca[mu][i_A_mo] * cb[nu][i_B_mo];
         }
     }
 
