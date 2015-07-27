@@ -23,6 +23,7 @@ namespace psi{ namespace cdft {
 
 void CDFT(Options& options);
 void OCDFT(Options& options);
+void NOCI(Options& options);
 
 extern "C"
 int read_options(std::string name, Options& options)
@@ -31,7 +32,7 @@ int read_options(std::string name, Options& options)
         /*- Select the constrained DFT method.  The valid options are:
         ``CDFT`` Constrained DFT;
         ``OCDFT`` Constrained DFT;   Default is ``OCDFTHP``. -*/
-        options.add_str("METHOD","OCDFT", "OCDFT CDFT");
+        options.add_str("METHOD","OCDFT", "OCDFT CDFT NOCI");
 
         // Options for Constrained DFT (CDFT)
 
@@ -107,7 +108,10 @@ PsiReturnType cdft(Options& options)
     }else if (options.get_str("METHOD") == "OCDFT"){
         outfile->Printf("\n  ==> Orthogonality Constrained DFT <==\n");
         OCDFT(options);
-    }
+    }else if (options.get_str("METHOD") == "NOCI"){
+        outfile->Printf("\n  ==> NON-Orthogonality CI <==\n");
+        NOCI(options);
+     }
 
     // Set some environment variables
 //    Process::environment.globals["SCF TOTAL ENERGY"] = energies.back();
@@ -140,6 +144,14 @@ void CDFT(Options& options)
         }
     }
 }
+
+
+void NOCI(Options& options)
+{
+    std::string reference = options.get_str("REFERENCE");
+}
+
+
 
 void OCDFT(Options& options)
 {

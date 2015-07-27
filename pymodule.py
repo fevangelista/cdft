@@ -26,6 +26,26 @@ def run_cdft(name, **kwargs):
 
     return returnvalue
 
+
+def run_noci(name, **kwargs):
+    r"""Function encoding sequence of PSI module and plugin calls so that
+    NOCI can be called via :py:func:`~driver.energy`.
+
+    >>> energy('noci')
+
+    """
+    lowername = name.lower()
+    kwargs = p4util.kwargs_lower(kwargs)
+
+    # Run CDFT
+    psi4.set_local_option('CDFT','METHOD','NOCI')
+    returnvalue = psi4.plugin('cdft.so')
+
+    return returnvalue
+
+
+
+
 def run_ocdft(name, **kwargs):
     r"""Function encoding sequence of PSI module and plugin calls so that
     OCDFT can be called via :py:func:`~driver.energy`.
@@ -45,3 +65,4 @@ def run_ocdft(name, **kwargs):
 # Integration with driver routines
 procedures['energy']['cdft'] = run_ocdft
 procedures['energy']['ocdft'] = run_cdft
+procedures['energy']['noci'] = run_noci
