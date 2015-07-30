@@ -14,6 +14,7 @@
 
 #include "ucks.h"
 #include "ocdft.h"
+#include "noci.h"
 
 INIT_PLUGIN
 
@@ -148,7 +149,34 @@ void CDFT(Options& options)
 
 void NOCI(Options& options)
 {
+    boost::shared_ptr<PSIO> psio = PSIO::shared_object();
+    boost::shared_ptr<Wavefunction> ref_scf;
     std::string reference = options.get_str("REFERENCE");
+    std::vector<double> energies;
+    // Store the irrep, multiplicity, total energy, excitation energy, oscillator strength
+    std::vector<boost::tuple<int,int,double,double,double>> state_info;
+    if (reference == "RKS") {
+        throw InputException("Constrained RKS is not implemented ", "REFERENCE to UKS", __FILE__, __LINE__);
+    }else if (reference == "UKS") {
+        // Run a ground state computation first
+        outfile->Printf(" PV this is first done.\n");
+        ref_scf = boost::shared_ptr<Wavefunction>(new scf::NOCI(options, psio));
+        Process::environment.set_wavefunction(ref_scf);
+        double gs_energy = ref_scf->compute_energy();
+        outfile->Printf("\n  %11.4f",gs_energy);
+        energies.push_back(gs_energy);
+
+        state_info.push_back(boost::make_tuple(0,1,gs_energy,0.0,0.0));
+        int nstates = 4;
+        for(int state = 1; state <= nstates; ++state){
+            boost::shared_ptr<Wavefunction> new_scf = boost::shared_ptr<Wavefunction>(new scf::NOCI(options,psio,ref_scf,state));
+            Process::environment.wavefunction().reset();
+            Process::environment.set_wavefunction(new_scf);
+            double new_energy = new_scf->compute_energy();
+            energies.push_back(new_energy);
+            ref_scf=new_scf;
+        }
+}
 }
 
 
