@@ -24,7 +24,11 @@ namespace psi{ namespace cdft {
 
 void CDFT(Options& options);
 void OCDFT(Options& options);
+<<<<<<< HEAD
 void FASNOCIS(Options& options);
+=======
+void NOCI(Options& options);
+>>>>>>> 501ae86193045ab8635c81fa9550810175d23e00
 
 extern "C"
 int read_options(std::string name, Options& options)
@@ -33,7 +37,7 @@ int read_options(std::string name, Options& options)
         /*- Select the constrained DFT method.  The valid options are:
         ``CDFT`` Constrained DFT;
         ``OCDFT`` Constrained DFT;   Default is ``OCDFTHP``. -*/
-        options.add_str("METHOD","OCDFT", "OCDFT CDFT FASNOCIS");
+        options.add_str("METHOD","OCDFT", "OCDFT CDFT FASNOCIS NOCI");
 
         // Options for Constrained DFT (CDFT)
 
@@ -119,6 +123,9 @@ PsiReturnType cdft(Options& options)
     }else if (options.get_str("METHOD") == "FASNOCIS"){
         outfile->Printf("\n  ==> Frozen-active-space NOCI Singles <==\n");
         FASNOCIS(options);
+    }else if (options.get_str("METHOD") == "NOCI"){
+        outfile->Printf("\n  ==> NON-Orthogonality CI <==\n");
+        NOCI(options);
     }
 
     // Set some environment variables
@@ -152,6 +159,14 @@ void CDFT(Options& options)
         }
     }
 }
+
+
+void NOCI(Options& options)
+{
+    std::string reference = options.get_str("REFERENCE");
+}
+
+
 
 void OCDFT(Options& options)
 {
