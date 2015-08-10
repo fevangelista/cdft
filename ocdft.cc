@@ -1584,6 +1584,11 @@ void UOCDFT::compute_transition_moments()
 
     std::vector<std::string> l_to_symbol{"s","p","d","f","g","h"};
 
+    std::vector<std::pair<double,std::string>> sorted_contributions;
+    outfile->Printf("\n  Mulliken Population Analysis of the Transition Dipole Moment:\n");
+    outfile->Printf("\n  ==============================================================");
+    outfile->Printf("\n   Initial     Final     mu(x)      mu(y)      mu(z)       |mu|");
+    outfile->Printf("\n  --------------------------------------------------------------");
     SharedMatrix trDa_ao_atom = SharedMatrix(new Matrix("AO Density", KS::basisset_->nbf(), KS::basisset_->nbf()));
     for (auto& i : keys){
         for (auto& f : keys){
@@ -1602,17 +1607,24 @@ void UOCDFT::compute_transition_moments()
 
             double abs_dipole = std::sqrt(de[0] * de[0] + de[1] * de[1] + de[2] * de[2]);
             if (abs_dipole >= 1.0e-4){
-                outfile->Printf("\n  %2s  %-3d  %1s  %2s  %-3d  %1s  %9f %9f %9f",
-                                i.first + 1,
-                                KS::molecule_->symbol(i.first).c_str(),
-                                l_to_symbol[i.second].c_str(),
-                        f.first + 1,
-                        KS::molecule_->symbol(f.first).c_str(),
-                        l_to_symbol[f.second].c_str(),
-                        de[0],de[1],de[2]);
+                std::string outstr = boost::str(boost::format("  %3d %2s %1s  %3d %2s %1s  %9f  %9f  %9f  %9f") %
+                            (i.first + 1) %
+                            KS::molecule_->symbol(i.first).c_str() %
+                            l_to_symbol[i.second].c_str() %
+                            (f.first + 1) %
+                            KS::molecule_->symbol(f.first).c_str() %
+                            l_to_symbol[f.second].c_str() %
+                            de[0] % de[1] % de[2] % abs_dipole);
+                sorted_contributions.push_back(std::make_pair(abs_dipole,outstr));
             }
         }
     }
+
+    std::sort(sorted_contributions.rbegin(),sorted_contributions.rend());
+    for (auto& kv : sorted_contributions){
+        outfile->Printf("\n%s",kv.second.c_str());
+    }
+    outfile->Printf("\n  ==============================================================\n\n");
 }
 
 //void UCKS::save_fock()
