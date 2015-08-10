@@ -1520,11 +1520,19 @@ void UOCDFT::compute_transition_moments()
     }
 
     SharedMatrix trDa_ao = SharedMatrix(new Matrix("AO Density", KS::basisset_->nbf(), KS::basisset_->nbf()));
+    SharedMatrix S_ao = SharedMatrix(new Matrix("AO Overlap matrix", KS::basisset_->nbf(), KS::basisset_->nbf()));
+    SharedMatrix S_half_ao = SharedMatrix(new Matrix("Square root of the AO Overlap matrix", KS::basisset_->nbf(), KS::basisset_->nbf()));
+    SharedMatrix S_inv_half_ao = SharedMatrix(new Matrix("Inverse square root of the AO Overlap matrix", KS::basisset_->nbf(), KS::basisset_->nbf()));
 
     double de[3];
     boost::shared_ptr<PetiteList> pet(new PetiteList(KS::basisset_, integral_));
     SharedMatrix SO2AO_ = pet->sotoao();
     trDa_ao->remove_symmetry(trDa,SO2AO_);
+    S_ao->remove_symmetry(S_,SO2AO_);
+    S_half_ao->copy(S_ao);
+    S_half_ao->power(0.5);
+    S_inv_half_ao->copy(S_ao);
+    S_inv_half_ao->power(-0.5);
 
     // Contract the dipole moment operators with the pseudo-density matrix
     boost::shared_ptr<OEProp> oe(new OEProp());
@@ -1548,19 +1556,19 @@ void UOCDFT::compute_transition_moments()
     de[1] = trDa_ao->vector_dot(dipole_ints[1]);
     de[2] = trDa_ao->vector_dot(dipole_ints[2]);
 
-    outfile->Printf("\n  Dipole moments from AO integrals: %9f %9f %9f",de[0],de[1],de[2]);
+    outfile->Printf("\n  Dipole moments from AO integrals: %.4f %.4f %.4f",de[0],de[1],de[2]);
 
     // Form a map that lists all functions on a given atom and with a given ang. momentum
     std::map<std::pair<int,int>,std::vector<int>> atom_am_to_f;
     int sum = 0;
     for (int A = 0; A < KS::molecule_->natom(); A++) {
-        outfile->Printf("\n Atom %d",A);
+//        outfile->Printf("\n Atom %d",A);
         int n_shell = KS::KS::basisset_->nshell_on_center(A);
         for (int Q = 0; Q < n_shell; Q++){
             const GaussianShell& shell = KS::KS::basisset_->shell(A,Q);
             int nfunction = shell.nfunction();
             int am = shell.am();
-            outfile->Printf("\n   Shell %d: L = %d, N = %d (%d -> %d)",Q,am,nfunction,sum,sum + nfunction);
+//            outfile->Printf("\n   Shell %d: L = %d, N = %d (%d -> %d)",Q,am,nfunction,sum,sum + nfunction);
             std::pair<int,int> atom_am(A,am);
             for (int p = sum; p < sum + nfunction; ++p){
                 atom_am_to_f[atom_am].push_back(p);
@@ -1575,20 +1583,20 @@ void UOCDFT::compute_transition_moments()
     }
     std::sort(keys.begin(),keys.end());
 
-    for (auto& key : keys){
-        outfile->Printf("\n Atom = %d, AM = %d ->",key.first,key.second);
-        for (auto& p : atom_am_to_f[key]){
-            outfile->Printf(" %d",p);
-        }
-    }
+//    for (auto& key : keys){
+//        outfile->Printf("\n Atom = %d, AM = %d ->",key.first,key.second);
+//        for (auto& p : atom_am_to_f[key]){
+//            outfile->Printf(" %d",p);
+//        }
+//    }
 
     std::vector<std::string> l_to_symbol{"s","p","d","f","g","h"};
 
     std::vector<std::pair<double,std::string>> sorted_contributions;
     outfile->Printf("\n  Mulliken Population Analysis of the Transition Dipole Moment:\n");
-    outfile->Printf("\n  ==============================================================");
+    outfile->Printf("\n  ===============================================================");
     outfile->Printf("\n   Initial     Final     mu(x)      mu(y)      mu(z)       |mu|");
-    outfile->Printf("\n  --------------------------------------------------------------");
+    outfile->Printf("\n  ---------------------------------------------------------------");
     SharedMatrix trDa_ao_atom = SharedMatrix(new Matrix("AO Density", KS::basisset_->nbf(), KS::basisset_->nbf()));
     for (auto& i : keys){
         for (auto& f : keys){
@@ -1624,7 +1632,60 @@ void UOCDFT::compute_transition_moments()
     for (auto& kv : sorted_contributions){
         outfile->Printf("\n%s",kv.second.c_str());
     }
-    outfile->Printf("\n  ==============================================================\n\n");
+    outfile->Printf("\n  ===============================================================\n\n");
+
+
+    sorted_contributions.clear();
+    trDa_ao->transform(S_half_ao);
+    for (int i = 0; i < 3; ++i){
+        dipole_ints[i]->transform(S_inv_half_ao);
+    }
+
+    de[0] = trDa_ao->vector_dot(dipole_ints[0]);
+    de[1] = trDa_ao->vector_dot(dipole_ints[1]);
+    de[2] = trDa_ao->vector_dot(dipole_ints[2]);
+
+    outfile->Printf("\n  Dipole moments from AO integrals: %.4f %.4f %.4f",de[0],de[1],de[2]);
+
+    outfile->Printf("\n  Lowdin Population Analysis of the Transition Dipole Moment:\n");
+    outfile->Printf("\n  ===============================================================");
+    outfile->Printf("\n   Initial     Final     mu(x)      mu(y)      mu(z)       |mu|");
+    outfile->Printf("\n  ---------------------------------------------------------------");
+    for (auto& i : keys){
+        for (auto& f : keys){
+            trDa_ao_atom->zero();
+            auto& ifn = atom_am_to_f[i];
+            auto& ffn = atom_am_to_f[f];
+            for (int iao : ifn){
+                for (int fao : ffn){
+                    double value = trDa_ao->get(fao,iao);
+                    trDa_ao_atom->set(fao,iao,value);
+                }
+            }
+            de[0] = trDa_ao_atom->vector_dot(dipole_ints[0]);
+            de[1] = trDa_ao_atom->vector_dot(dipole_ints[1]);
+            de[2] = trDa_ao_atom->vector_dot(dipole_ints[2]);
+
+            double abs_dipole = std::sqrt(de[0] * de[0] + de[1] * de[1] + de[2] * de[2]);
+            if (abs_dipole >= 1.0e-4){
+                std::string outstr = boost::str(boost::format("  %3d %2s %1s  %3d %2s %1s  %9f  %9f  %9f  %9f") %
+                            (i.first + 1) %
+                            KS::molecule_->symbol(i.first).c_str() %
+                            l_to_symbol[i.second].c_str() %
+                            (f.first + 1) %
+                            KS::molecule_->symbol(f.first).c_str() %
+                            l_to_symbol[f.second].c_str() %
+                            de[0] % de[1] % de[2] % abs_dipole);
+                sorted_contributions.push_back(std::make_pair(abs_dipole,outstr));
+            }
+        }
+    }
+
+    std::sort(sorted_contributions.rbegin(),sorted_contributions.rend());
+    for (auto& kv : sorted_contributions){
+        outfile->Printf("\n%s",kv.second.c_str());
+    }
+    outfile->Printf("\n  ===============================================================\n\n");
 }
 
 //void UCKS::save_fock()
