@@ -1592,20 +1592,25 @@ void UOCDFT::compute_transition_moments()
             auto& ffn = atom_am_to_f[f];
             for (int iao : ifn){
                 for (int fao : ffn){
-                    double value = trDa_ao->get(iao,fao);
-                    trDa_ao_atom->set(iao,fao,value);
+                    double value = trDa_ao->get(fao,iao);
+                    trDa_ao_atom->set(fao,iao,value);
                 }
             }
             de[0] = trDa_ao_atom->vector_dot(dipole_ints[0]);
             de[1] = trDa_ao_atom->vector_dot(dipole_ints[1]);
             de[2] = trDa_ao_atom->vector_dot(dipole_ints[2]);
 
-            outfile->Printf("\n  A%-3d (%s) -> A%-3d (%s) : %9f %9f %9f",
-                            i.first,
-                            l_to_symbol[i.second].c_str(),
-                            f.first,
-                            l_to_symbol[f.second].c_str(),
-                            de[0],de[1],de[2]);
+            double abs_dipole = std::sqrt(de[0] * de[0] + de[1] * de[1] + de[2] * de[2]);
+            if (abs_dipole >= 1.0e-4){
+                outfile->Printf("\n  %2s  %-3d  %1s  %2s  %-3d  %1s  %9f %9f %9f",
+                                i.first + 1,
+                                KS::molecule_->symbol(i.first).c_str(),
+                                l_to_symbol[i.second].c_str(),
+                        f.first + 1,
+                        KS::molecule_->symbol(f.first).c_str(),
+                        l_to_symbol[f.second].c_str(),
+                        de[0],de[1],de[2]);
+            }
         }
     }
 }
