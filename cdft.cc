@@ -24,11 +24,8 @@ namespace psi{ namespace cdft {
 
 void CDFT(Options& options);
 void OCDFT(Options& options);
-<<<<<<< HEAD
 void FASNOCIS(Options& options);
-=======
 void NOCI(Options& options);
->>>>>>> 501ae86193045ab8635c81fa9550810175d23e00
 
 extern "C"
 int read_options(std::string name, Options& options)
