@@ -293,7 +293,6 @@ void OCDFT(Options& options)
 }
 
 
-
 void FASNOCIS(Options& options)
 {
     boost::shared_ptr<PSIO> psio = PSIO::shared_object();
