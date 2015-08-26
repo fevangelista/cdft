@@ -1,12 +1,12 @@
 .DS_Store
-CDFT.config
-CDFT.creator
-CDFT.creator.user
-CDFT.creator.user.2.5pre1
-CDFT.creator.user.2.6pre1
-CDFT.creator.user.92787d5
-CDFT.files
-CDFT.includes
+*.config
+*.creator
+*.creator.user
+*.creator.user.2.5pre1
+*.creator.user.2.6pre1
+*.creator.user.92787d5
+*.files
+*.includes
 Makefile.*
 tests/junk/
 
