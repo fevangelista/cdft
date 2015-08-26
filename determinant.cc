@@ -13,7 +13,7 @@ Determinant::Determinant(double energy, SharedMatrix Ca, SharedMatrix Cb, const 
 }
 
 Determinant::Determinant(SharedMatrix Ca, SharedMatrix Cb, const Dimension& nalphapi, const Dimension& nbetapi)
-    :nalphapi_(nalphapi), nbetapi_(nbetapi), Ca_(Ca->clone()), Cb_(Cb->clone())
+    : energy_(0.0), nalphapi_(nalphapi), nbetapi_(nbetapi), Ca_(Ca->clone()), Cb_(Cb->clone())
 {
 }
 
