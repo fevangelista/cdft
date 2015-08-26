@@ -31,11 +31,8 @@ namespace psi{ namespace cdft {
 
 void CDFT(Options& options);
 void OCDFT(Options& options);
-
 void FASNOCIS(Options& options);
-
 void NOCI(Options& options);
-
 
 extern "C"
 int read_options(std::string name, Options& options)
@@ -470,7 +467,6 @@ void OCDFT(Options& options)
     // Set this early because the callback mechanism uses it.
     Process::environment.wavefunction().reset();
 }
-
 
 
 void FASNOCIS(Options& options)

@@ -84,6 +84,7 @@ UOCDFT::UOCDFT(Options &options, boost::shared_ptr<PSIO> psio, boost::shared_ptr
   oscillator_strength_s_plus_(0.0),
   oscillator_strength_ci(0.0)
 {
+    do_excitation = true;
     init();
     init_excitation(ref_scf);
     ground_state_energy = dets[0]->energy();
@@ -262,91 +263,91 @@ void UOCDFT::save_density_and_energy()
     Eold_ = E_;
 }
 
-void UOCDFT::form_G()
-{
-    timer_on("Form V");
-    form_V();
-    timer_off("Form V");
+//void UOCDFT::form_G()
+//{
+//    timer_on("Form V");
+//    form_V();
+//    timer_off("Form V");
 
-    // Push the C matrix on
-    std::vector<SharedMatrix> & C = jk_->C_left();
-    C.clear();
-    C.push_back(Ca_subset("SO", "OCC"));
-    C.push_back(Cb_subset("SO", "OCC"));
+//    // Push the C matrix on
+//    std::vector<SharedMatrix> & C = jk_->C_left();
+//    C.clear();
+//    C.push_back(Ca_subset("SO", "OCC"));
+//    C.push_back(Cb_subset("SO", "OCC"));
 
-    // Addition to standard call, make sure that C_right is not set
-    std::vector<SharedMatrix> & C_right = jk_->C_right();
-    C_right.clear();
+//    // Addition to standard call, make sure that C_right is not set
+//    std::vector<SharedMatrix> & C_right = jk_->C_right();
+//    C_right.clear();
 
-    // Run the JK object
-    jk_->compute();
+//    // Run the JK object
+//    jk_->compute();
 
-    // Pull the J and K matrices off
-    const std::vector<SharedMatrix> & J = jk_->J();
-    const std::vector<SharedMatrix> & K = jk_->K();
-    const std::vector<SharedMatrix> & wK = jk_->wK();
-    J_->copy(J[0]);
-    J_->add(J[1]);
-    if (functional_->is_x_hybrid()) {
-        Ka_ = K[0];
-        Kb_ = K[1];
-    }
-    if (functional_->is_x_lrc()) {
-        wKa_ = wK[0];
-        wKb_ = wK[1];
-    }
-    Ga_->copy(J_);
-    Gb_->copy(J_);
+//    // Pull the J and K matrices off
+//    const std::vector<SharedMatrix> & J = jk_->J();
+//    const std::vector<SharedMatrix> & K = jk_->K();
+//    const std::vector<SharedMatrix> & wK = jk_->wK();
+//    J_->copy(J[0]);
+//    J_->add(J[1]);
+//    if (functional_->is_x_hybrid()) {
+//        Ka_ = K[0];
+//        Kb_ = K[1];
+//    }
+//    if (functional_->is_x_lrc()) {
+//        wKa_ = wK[0];
+//        wKb_ = wK[1];
+//    }
+//    Ga_->copy(J_);
+//    Gb_->copy(J_);
 
-    Ga_->add(Va_);
-    Gb_->add(Vb_);
+//    Ga_->add(Va_);
+//    Gb_->add(Vb_);
 
-    double alpha = functional_->x_alpha();
-    double beta = 1.0 - alpha;
-    if (alpha != 0.0) {
-        Ka_->scale(alpha);
-        Kb_->scale(alpha);
-        Ga_->subtract(Ka_);
-        Gb_->subtract(Kb_);
-        Ka_->scale(1.0/alpha);
-        Kb_->scale(1.0/alpha);
-    } else {
-        Ka_->zero();
-        Kb_->zero();
-    }
+//    double alpha = functional_->x_alpha();
+//    double beta = 1.0 - alpha;
+//    if (alpha != 0.0) {
+//        Ka_->scale(alpha);
+//        Kb_->scale(alpha);
+//        Ga_->subtract(Ka_);
+//        Gb_->subtract(Kb_);
+//        Ka_->scale(1.0/alpha);
+//        Kb_->scale(1.0/alpha);
+//    } else {
+//        Ka_->zero();
+//        Kb_->zero();
+//    }
 
-    std::string functional_prefix = functional_->name().substr(0,2);
-    if (functional_prefix == "sr"){
-        wKa_->scale(-alpha);
-        wKb_->scale(-alpha);
-        Ga_->subtract(wKa_);
-        Gb_->subtract(wKb_);
-        wKa_->scale(-1.0/alpha);
-        wKb_->scale(-1.0/alpha);
-    } else{
-        if (functional_->is_x_lrc()) {
-            wKa_->scale(beta);
-            wKb_->scale(beta);
-            Ga_->subtract(wKa_);
-            Gb_->subtract(wKb_);
-            wKa_->scale(1.0/beta);
-            wKb_->scale(1.0/beta);
-        } else {
-            wKa_->zero();
-            wKb_->zero();
-        }
-    }
+//    std::string functional_prefix = functional_->name().substr(0,2);
+//    if (functional_prefix == "sr"){
+//        wKa_->scale(-alpha);
+//        wKb_->scale(-alpha);
+//        Ga_->subtract(wKa_);
+//        Gb_->subtract(wKb_);
+//        wKa_->scale(-1.0/alpha);
+//        wKb_->scale(-1.0/alpha);
+//    } else{
+//        if (functional_->is_x_lrc()) {
+//            wKa_->scale(beta);
+//            wKb_->scale(beta);
+//            Ga_->subtract(wKa_);
+//            Gb_->subtract(wKb_);
+//            wKa_->scale(1.0/beta);
+//            wKb_->scale(1.0/beta);
+//        } else {
+//            wKa_->zero();
+//            wKb_->zero();
+//        }
+//    }
 
-    if (debug_ > 2) {
-        J_->print();
-        Ka_->print();
-        Kb_->print();
-        wKa_->print();
-        wKb_->print();
-        Va_->print();
-        Vb_->print();
-    }
-}
+//    if (debug_ > 2) {
+//        J_->print();
+//        Ka_->print();
+//        Kb_->print();
+//        wKa_->print();
+//        wKb_->print();
+//        Va_->print();
+//        Vb_->print();
+//    }
+//}
 
 void UOCDFT::form_F()
 {
@@ -1249,6 +1250,9 @@ bool UOCDFT::test_convergency()
     bool density_test = Drms_ < density_threshold_;
     bool cycle_test = iteration_ > 5;
 
+    if (state_ > 0){
+        if (iteration_ > KS::options_.get_int("OCDFT_MAX_ITER")) return true;
+    }
     if(energy_test and density_test and cycle_test){
         return true;
     }
@@ -1516,6 +1520,21 @@ void UOCDFT::compute_transition_moments()
         }
     }
 
+    SharedMatrix trDa_ao = SharedMatrix(new Matrix("AO Density", KS::basisset_->nbf(), KS::basisset_->nbf()));
+    SharedMatrix S_ao = SharedMatrix(new Matrix("AO Overlap matrix", KS::basisset_->nbf(), KS::basisset_->nbf()));
+    SharedMatrix S_half_ao = SharedMatrix(new Matrix("Square root of the AO Overlap matrix", KS::basisset_->nbf(), KS::basisset_->nbf()));
+    SharedMatrix S_inv_half_ao = SharedMatrix(new Matrix("Inverse square root of the AO Overlap matrix", KS::basisset_->nbf(), KS::basisset_->nbf()));
+
+    double de[3];
+    boost::shared_ptr<PetiteList> pet(new PetiteList(KS::basisset_, integral_));
+    SharedMatrix SO2AO_ = pet->sotoao();
+    trDa_ao->remove_symmetry(trDa,SO2AO_);
+    S_ao->remove_symmetry(S_,SO2AO_);
+    S_half_ao->copy(S_ao);
+    S_half_ao->power(0.5);
+    S_inv_half_ao->copy(S_ao);
+    S_inv_half_ao->power(-0.5);
+
     // Contract the dipole moment operators with the pseudo-density matrix
     boost::shared_ptr<OEProp> oe(new OEProp());
     oe->set_title("OCDFT TRANSITION");
@@ -1524,6 +1543,150 @@ void UOCDFT::compute_transition_moments()
     oe->set_Db_so(trDb);
     outfile->Printf( "  ==> Transition dipole moment computed with OCDFT <==\n\n");
     oe->compute();
+
+    std::vector<SharedMatrix> dipole_ints;
+    dipole_ints.push_back(SharedMatrix(new Matrix("AO Dipole X", KS::basisset_->nbf(), KS::basisset_->nbf())));
+    dipole_ints.push_back(SharedMatrix(new Matrix("AO Dipole Y", KS::basisset_->nbf(), KS::basisset_->nbf())));
+    dipole_ints.push_back(SharedMatrix(new Matrix("AO Dipole Z", KS::basisset_->nbf(), KS::basisset_->nbf())));
+    boost::shared_ptr<OneBodyAOInt> aodOBI (integral_->ao_dipole());
+    Vector3 origin(0.0,0.0,0.0);
+    aodOBI->set_origin(origin);
+    aodOBI->compute(dipole_ints);
+
+    de[0] = trDa_ao->vector_dot(dipole_ints[0]);
+    de[1] = trDa_ao->vector_dot(dipole_ints[1]);
+    de[2] = trDa_ao->vector_dot(dipole_ints[2]);
+
+    outfile->Printf("\n  Dipole moments from AO integrals: %.4f %.4f %.4f",de[0],de[1],de[2]);
+
+    // Form a map that lists all functions on a given atom and with a given ang. momentum
+    std::map<std::pair<int,int>,std::vector<int>> atom_am_to_f;
+    int sum = 0;
+    for (int A = 0; A < KS::molecule_->natom(); A++) {
+//        outfile->Printf("\n Atom %d",A);
+        int n_shell = KS::KS::basisset_->nshell_on_center(A);
+        for (int Q = 0; Q < n_shell; Q++){
+            const GaussianShell& shell = KS::KS::basisset_->shell(A,Q);
+            int nfunction = shell.nfunction();
+            int am = shell.am();
+//            outfile->Printf("\n   Shell %d: L = %d, N = %d (%d -> %d)",Q,am,nfunction,sum,sum + nfunction);
+            std::pair<int,int> atom_am(A,am);
+            for (int p = sum; p < sum + nfunction; ++p){
+                atom_am_to_f[atom_am].push_back(p);
+            }
+            sum += nfunction;
+        }
+    }
+
+    std::vector<std::pair<int,int>> keys;
+    for (auto& kv : atom_am_to_f){
+        keys.push_back(kv.first);
+    }
+    std::sort(keys.begin(),keys.end());
+
+//    for (auto& key : keys){
+//        outfile->Printf("\n Atom = %d, AM = %d ->",key.first,key.second);
+//        for (auto& p : atom_am_to_f[key]){
+//            outfile->Printf(" %d",p);
+//        }
+//    }
+
+    std::vector<std::string> l_to_symbol{"s","p","d","f","g","h"};
+
+    std::vector<std::pair<double,std::string>> sorted_contributions;
+    outfile->Printf("\n  Mulliken Population Analysis of the Transition Dipole Moment:\n");
+    outfile->Printf("\n  ===============================================================");
+    outfile->Printf("\n   Initial     Final     mu(x)      mu(y)      mu(z)       |mu|");
+    outfile->Printf("\n  ---------------------------------------------------------------");
+    SharedMatrix trDa_ao_atom = SharedMatrix(new Matrix("AO Density", KS::basisset_->nbf(), KS::basisset_->nbf()));
+    for (auto& i : keys){
+        for (auto& f : keys){
+            trDa_ao_atom->zero();
+            auto& ifn = atom_am_to_f[i];
+            auto& ffn = atom_am_to_f[f];
+            for (int iao : ifn){
+                for (int fao : ffn){
+                    double value = trDa_ao->get(fao,iao);
+                    trDa_ao_atom->set(fao,iao,value);
+                }
+            }
+            de[0] = trDa_ao_atom->vector_dot(dipole_ints[0]);
+            de[1] = trDa_ao_atom->vector_dot(dipole_ints[1]);
+            de[2] = trDa_ao_atom->vector_dot(dipole_ints[2]);
+
+            double abs_dipole = std::sqrt(de[0] * de[0] + de[1] * de[1] + de[2] * de[2]);
+            if (abs_dipole >= 1.0e-4){
+                std::string outstr = boost::str(boost::format("  %3d %2s %1s  %3d %2s %1s  %9f  %9f  %9f  %9f") %
+                            (i.first + 1) %
+                            KS::molecule_->symbol(i.first).c_str() %
+                            l_to_symbol[i.second].c_str() %
+                            (f.first + 1) %
+                            KS::molecule_->symbol(f.first).c_str() %
+                            l_to_symbol[f.second].c_str() %
+                            de[0] % de[1] % de[2] % abs_dipole);
+                sorted_contributions.push_back(std::make_pair(abs_dipole,outstr));
+            }
+        }
+    }
+
+    std::sort(sorted_contributions.rbegin(),sorted_contributions.rend());
+    for (auto& kv : sorted_contributions){
+        outfile->Printf("\n%s",kv.second.c_str());
+    }
+    outfile->Printf("\n  ===============================================================\n\n");
+
+
+    sorted_contributions.clear();
+    trDa_ao->transform(S_half_ao);
+    for (int i = 0; i < 3; ++i){
+        dipole_ints[i]->transform(S_inv_half_ao);
+    }
+
+    de[0] = trDa_ao->vector_dot(dipole_ints[0]);
+    de[1] = trDa_ao->vector_dot(dipole_ints[1]);
+    de[2] = trDa_ao->vector_dot(dipole_ints[2]);
+
+    outfile->Printf("\n  Dipole moments from AO integrals: %.4f %.4f %.4f",de[0],de[1],de[2]);
+
+    outfile->Printf("\n  Lowdin Population Analysis of the Transition Dipole Moment:\n");
+    outfile->Printf("\n  ===============================================================");
+    outfile->Printf("\n   Initial     Final     mu(x)      mu(y)      mu(z)       |mu|");
+    outfile->Printf("\n  ---------------------------------------------------------------");
+    for (auto& i : keys){
+        for (auto& f : keys){
+            trDa_ao_atom->zero();
+            auto& ifn = atom_am_to_f[i];
+            auto& ffn = atom_am_to_f[f];
+            for (int iao : ifn){
+                for (int fao : ffn){
+                    double value = trDa_ao->get(fao,iao);
+                    trDa_ao_atom->set(fao,iao,value);
+                }
+            }
+            de[0] = trDa_ao_atom->vector_dot(dipole_ints[0]);
+            de[1] = trDa_ao_atom->vector_dot(dipole_ints[1]);
+            de[2] = trDa_ao_atom->vector_dot(dipole_ints[2]);
+
+            double abs_dipole = std::sqrt(de[0] * de[0] + de[1] * de[1] + de[2] * de[2]);
+            if (abs_dipole >= 1.0e-4){
+                std::string outstr = boost::str(boost::format("  %3d %2s %1s  %3d %2s %1s  %9f  %9f  %9f  %9f") %
+                            (i.first + 1) %
+                            KS::molecule_->symbol(i.first).c_str() %
+                            l_to_symbol[i.second].c_str() %
+                            (f.first + 1) %
+                            KS::molecule_->symbol(f.first).c_str() %
+                            l_to_symbol[f.second].c_str() %
+                            de[0] % de[1] % de[2] % abs_dipole);
+                sorted_contributions.push_back(std::make_pair(abs_dipole,outstr));
+            }
+        }
+    }
+
+    std::sort(sorted_contributions.rbegin(),sorted_contributions.rend());
+    for (auto& kv : sorted_contributions){
+        outfile->Printf("\n%s",kv.second.c_str());
+    }
+    outfile->Printf("\n  ===============================================================\n\n");
 }
 
 //void UCKS::save_fock()
