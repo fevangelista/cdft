@@ -11,10 +11,17 @@
 #include <libmints/wavefunction.h>
 #include <libmints/writer.h>
 #include <libmints/writer_file_prefix.h>
+#include<vector>
 
 #include "ucks.h"
 #include "ocdft.h"
+
+#include "noci.h"
+#include "noci_mat.h"
+#include "determinant.h"
+
 #include "fasnocis.h"
+
 
 INIT_PLUGIN
 
@@ -93,6 +100,10 @@ int read_options(std::string name, Options& options)
         /*- Select the type of excited state to target -*/
         options.add_int("CDFT_NUM_PROJECT_OUT",1);
 
+
+        options.add("AOCC_FROZEN", new ArrayType());
+               options.add("AVIR_FROZEN", new ArrayType());
+
         /*- Select the maximum number of iterations in an OCDFT computation -*/
         options.add_int("OCDFT_MAX_ITER",1000000);
 
@@ -100,6 +111,7 @@ int read_options(std::string name, Options& options)
         /*- TODOPRAKASH: add description -*/
         options.add("OCC_ACTIVE", new ArrayType());
         options.add("VIR_ACTIVE", new ArrayType());
+
 
         // Expert options
         /*- The amount of information printed to the output file -*/
@@ -160,7 +172,171 @@ void CDFT(Options& options)
 
 void NOCI(Options& options)
 {
+    boost::shared_ptr<PSIO> psio = PSIO::shared_object();
+    boost::shared_ptr<Wavefunction> ref_scf;
     std::string reference = options.get_str("REFERENCE");
+    std::vector<double> energies;
+    std::vector<SharedDeterminant> dets;
+    // Store the irrep, multiplicity, total energy, excitation energy, oscillator strength
+    std::vector<boost::tuple<int,int,double,double,double>> state_info;
+    if (reference == "RKS") {
+        throw InputException("Constrained RKS is not implemented ", "REFERENCE to UKS", __FILE__, __LINE__);
+    }else if (reference == "UKS") {
+        // Run a ground state computation first
+        outfile->Printf(" PV this is first done.\n");
+        ref_scf = boost::shared_ptr<Wavefunction>(new scf::NOCI(options, psio));
+        Process::environment.set_wavefunction(ref_scf);
+        double gs_energy = ref_scf->compute_energy();
+        outfile->Printf("\n  %11.4f",gs_energy);
+        energies.push_back(gs_energy);
+
+        // I am going to ask user to give me
+        //  OCC_ACTIVE based on each irrep
+        //  VIR_ACTIVE based on each irrep
+
+        int nirrep = Process::environment.wavefunction()->nirrep();
+        std::vector<int> occ_frozen, vir_frozen;
+        std::vector<boost::tuple<int,int,double>> occup_a;
+
+
+        for (int h = 0; h < nirrep; ++h){
+            occ_frozen.push_back(options["AOCC_FROZEN"][h].to_integer());
+            vir_frozen.push_back(options["AVIR_FROZEN"][h].to_integer());
+        }
+
+       for (auto &i : occ_frozen){
+                   outfile->Printf("\n  occ_frozen = %d",i);
+               }
+
+        // find out how many are occupied alpha and beta
+       Dimension nalphapi = ref_scf->nalphapi();
+       Dimension nbetapi = ref_scf->nbetapi();
+
+       Dimension nsopi_ = ref_scf->nsopi();
+       Dimension nmopi_ = ref_scf->nmopi();
+
+       // need to know my active mos based on each irrep
+       // active_mos have (irrep, mo_number_info)
+
+       std::vector<std::pair<int,int>> frozen_mos;
+       std::vector<std::pair<int,int>> frozen_occ_a;
+       std::vector<std::pair<int,int>> frozen_occ_b;
+
+       for (int h = 0; h < nirrep; ++h){
+           for (int i = 0; i < occ_frozen[h]; ++i){
+               frozen_mos.push_back(std::make_pair(h,nalphapi[h] - 1 - i));
+               frozen_occ_a.push_back(std::make_pair(h,nalphapi[h] - 1 - i));
+               frozen_occ_b.push_back(std::make_pair(h,nbetapi[h] - 1 - i));
+           }
+       }
+
+
+       for (int h = 0; h < nirrep; ++h){
+           for (int i = 0; i < vir_frozen[h]; ++i){
+               frozen_mos.push_back(std::make_pair(h,nalphapi[h] + i));
+           }
+       }
+
+
+       for (auto &h_p : frozen_mos){
+           outfile->Printf("\n  ireep = %d mo = %d",h_p.first,h_p.second);
+
+       }
+
+       outfile->Printf("\n not sure abott this %d",frozen_mos[1].second);
+
+
+
+
+//       for (int h = 0; h < nirrep; ++h){
+//            outfile->Printf("\n  irrep = %d Nalpha %d FNa = %d",h,nalphapi[h],occ_frozen[h]);
+//           for (int i = 0; i < nmopi_[h]; ++i){
+
+//               if (i < nalphapi[h] - occ_frozen[h]){
+//                  occup_a.push_back(boost::make_tuple(h,i,1.0));
+//               }
+//               else if (i >= nalphapi[h] - occ_frozen[h] && i < nalphapi[h] ){
+//                   occup_a.push_back(boost::make_tuple(h,i,0.0));
+//                }
+//               else if (i >= nalphapi[h] - occ_frozen[h] && i < nalphapi[h] ){
+//                                  occup_a.push_back(boost::make_tuple(h,i,0.0));
+//                               }
+//               else{
+//                   occup_a.push_back(boost::make_tuple(h,i,0.0));
+//               }
+//           }
+//       }
+
+       for (size_t n = 0; n < occup_a.size(); ++n){
+           outfile->Printf("\n  occup_a = %d %d mo = %f\n",occup_a[n].get<0>(),occup_a[n].get<1>(),occup_a[n].get<2>());
+
+       }
+
+
+        state_info.push_back(boost::make_tuple(0,1,gs_energy,0.0,0.0));
+
+       SharedMatrix Ca_gs_;
+       SharedMatrix Cb_gs_;
+
+
+       Ca_gs_ =  SharedMatrix(new Matrix("Ca_gs_",nsopi_,nmopi_));
+       Cb_gs_ =  SharedMatrix(new Matrix("Cb_gs_",nsopi_,nmopi_));
+
+        Ca_gs_->copy(ref_scf->Ca());
+        Cb_gs_->copy(ref_scf->Cb());
+
+       int nstates = 0;
+        for (int h = 0; h < nirrep; ++h){
+            nstates +=occ_frozen[h]*vir_frozen[h];
+        }
+
+        outfile->Printf("\n no. of states involved single excitations only %d\n", nstates);
+
+
+//         for (auto &h_p : frozen_occ_a){
+//             int irrep = h_p.first;
+//             int fmo   = h_p.second;
+//          //   outfile->Printf("frozen_occ_a %d %d %d\n", irrep, fmo,vir_frozen[irrep],nalphapi);
+//         }
+
+         for (auto &h_p : frozen_occ_a){
+             int irrep = h_p.first;
+             int fmo   = h_p.second;
+             std::pair<int,int> swap_occ (irrep,fmo);
+
+         //for (int h = 0; h < nirrep; ++h){
+          //   for (int i=1; i<= occ_frozen[h]; ++i){
+
+                 for (int state_a=1; state_a <= vir_frozen[irrep];++state_a){
+                     int state_b=0;
+                     boost::shared_ptr<Wavefunction> new_scf = boost::shared_ptr<Wavefunction>(new scf::NOCI(options,psio,state_a,swap_occ,state_b,
+                                                                                                             frozen_occ_a,frozen_occ_b,
+                                                                                                             frozen_mos,
+                                                                                                             occ_frozen,vir_frozen,
+                                                                                                             Ca_gs_,Cb_gs_));
+                     Process::environment.wavefunction().reset();
+                     Process::environment.set_wavefunction(new_scf);
+                     double new_energy = new_scf->compute_energy();
+                     energies.push_back(new_energy);
+                     dets.push_back(SharedDeterminant(new scf::Determinant(new_scf->Ca(),new_scf->Cb(),new_scf->nalphapi(),new_scf->nbetapi())));
+                 }
+          //   }//occup
+         } //irrep
+           scf::NOCI_mat pv(options,psio,dets);
+           pv.print();
+//         for(int i=0; i < nstates; ++i){
+//             outfile->Printf("\n");
+//              dets[i]->print();
+//               outfile->Printf("\n");
+//             Ca_gs_->copy(dets[i]->Ca());
+//             Ca_gs_->print();
+//             outfile->Printf("\n");
+//             Cb_gs_->copy(dets[i]->Cb());
+//             Cb_gs_->print();
+//             outfile->Printf("\n");
+
+//         }
+}
 }
 
 
