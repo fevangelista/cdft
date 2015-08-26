@@ -406,7 +406,8 @@ void UOCDFT::form_F()
 void UOCDFT::form_C()
 {
     if(not do_excitation){
-        // Ground state: use the default form_C
+        // Ground state: use the default
+
         UKS::form_C();
         if(iteration_ == 4 and KS::options_["CDFT_BREAK_SYMMETRY"].has_changed()){
             // Mix the alpha and beta homo
