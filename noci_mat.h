@@ -1,9 +1,7 @@
-#ifndef _noci_mat_h_
-#define _noci_mat_h_
+#ifndef _noci_hamiltonian_h_
+#define _noci_hamiltonian_h_
 
 #include "boost/tuple/tuple.hpp"
-
-#include <libscf_solver/hf.h>
 
 #include "determinant.h"
 
@@ -12,17 +10,37 @@ class Options;
 namespace scf{
 
 
-class NOCI_mat : public UHF {
+class NOCI_Hamiltonian{
 public:
-    explicit NOCI_mat(Options &options, boost::shared_ptr<PSIO> psio,std::vector<SharedDeterminant> dets);
-    virtual ~NOCI_mat();
+    explicit NOCI_Hamiltonian(Options &options, std::vector<SharedDeterminant> dets);
+    ~NOCI_Hamiltonian();
     void print();
 protected:
+    /// Compute the matrix element between determinants A and B
+    std::pair<double,double> matrix_element(SharedDeterminant A, SharedDeterminant B);
+    /// Compute the corresponding orbitals between determinant A and B
+    boost::tuple<SharedMatrix,SharedMatrix,SharedVector,double>
+    corresponding_orbitals(SharedMatrix A, SharedMatrix B, Dimension dima, Dimension dimb);
 
-    SharedMatrix Ca_gs_;
-    SharedMatrix Cb_gs_;
+    int nirrep_;
+    /// Matrix factory
+    boost::shared_ptr<MatrixFactory> factory_;
+    /// Number of symmetry adapted AOs per irrep
+    Dimension nsopi_;
+    /// The one-electron integrals
+    SharedMatrix H_copy;
+    boost::shared_ptr<JK> jk_;
+    /// The nuclear repulsion energy
+    double nuclearrep_;
+    /// Temporary matrices
+    SharedMatrix TempMatrix, TempMatrix2;
+
+    Options& options_;
     std::vector<SharedDeterminant> dets_;
-    void init();
+    SharedMatrix H_;
+    SharedMatrix S_;
+    SharedMatrix evecs_;
+    SharedVector evals_;
 };
 
 }} // Namespaces

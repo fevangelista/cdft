@@ -179,9 +179,9 @@ void NOCI(Options& options)
     std::vector<SharedDeterminant> dets;
     // Store the irrep, multiplicity, total energy, excitation energy, oscillator strength
     std::vector<boost::tuple<int,int,double,double,double>> state_info;
-    if (reference == "RKS") {
-        throw InputException("Constrained RKS is not implemented ", "REFERENCE to UKS", __FILE__, __LINE__);
-    }else if (reference == "UKS") {
+    if (reference == "RHF") {
+        throw InputException("NOCI based on a RHF reference is not implemented ", "REFERENCE to UHF", __FILE__, __LINE__);
+    }else if (reference == "UHF") {
         // Run a ground state computation first
         outfile->Printf(" PV this is first done.\n");
         ref_scf = boost::shared_ptr<Wavefunction>(new scf::NOCI(options, psio));
