@@ -15,6 +15,7 @@
 #include <libiwl/iwl.hpp>
 
 #include "ocdft.h"
+#include "helpers.h"
 
 using namespace psi;
 

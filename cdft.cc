@@ -322,8 +322,8 @@ void NOCI(Options& options)
                  }
           //   }//occup
          } //irrep
-           scf::NOCI_mat pv(options,psio,dets);
-           pv.print();
+//           scf::NOCI_mat pv(options,psio,dets);
+//           pv.print();
 //         for(int i=0; i < nstates; ++i){
 //             outfile->Printf("\n");
 //              dets[i]->print();

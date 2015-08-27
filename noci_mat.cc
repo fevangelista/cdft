@@ -6,8 +6,11 @@
 #include <libfock/v.h>
 #include <libfock/jk.h>
 #include <liboptions/liboptions.h>
+#include <libciomr/libciomr.h>
+
 
 #include "noci_mat.h"
+#include "helpers.h"
 
 #define DEBUG_NOCI 0
 
