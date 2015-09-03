@@ -10,6 +10,7 @@ class Determinant
 {
 public:
     Determinant(double energy, SharedMatrix Ca, SharedMatrix Cb, const Dimension &nalphapi, const Dimension &nbetapi);
+    Determinant(SharedMatrix Ca, SharedMatrix Cb, const Dimension &nalphapi, const Dimension &nbetapi);
     Determinant(const Determinant& det);
     ~Determinant();
     double energy() {return energy_;}

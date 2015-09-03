@@ -1,27 +1,47 @@
-#include "boost/tuple/tuple.hpp"
-#include "boost/tuple/tuple_comparison.hpp"
-
 #include <physconst.h>
-
+#include <psifiles.h>
 #include <libmints/mints.h>
-#include <libtrans/integraltransform.h>
+#include <libmints/wavefunction.h>
 #include <libfock/apps.h>
 #include <libfock/v.h>
 #include <libfock/jk.h>
-#include <libdisp/dispersion.h>
 #include <liboptions/liboptions.h>
 #include <libciomr/libciomr.h>
-#include <libqt/qt.h>
-#include <libiwl/iwl.hpp>
 
-#include "ocdft.h"
+
+#include "noci_mat.h"
 #include "helpers.h"
+
+#define DEBUG_NOCI 0
+
 
 using namespace psi;
 
 namespace psi{ namespace scf{
 
-std::pair<double,double> UOCDFT::matrix_element(SharedDeterminant A, SharedDeterminant B)
+NOCI_Hamiltonian::NOCI_Hamiltonian(Options &options, std::vector<SharedDeterminant> dets)
+    : options_(options), dets_(dets)
+{
+    boost::shared_ptr<Wavefunction> wfn = Process::environment.wavefunction();
+    boost::shared_ptr<Molecule> mol = Process::environment.molecule();
+
+    nirrep_ = wfn->nirrep();
+    factory_ = wfn->matrix_factory();
+    nsopi_ = wfn->nsopi();
+    H_copy = wfn->H()->clone();
+    jk_ = JK::build_JK();
+    nuclearrep_ = mol->nuclear_repulsion_energy();
+}
+
+NOCI_Hamiltonian::~NOCI_Hamiltonian()
+{
+}
+
+void NOCI_Hamiltonian::print()
+{
+}
+
+std::pair<double,double> NOCI_Hamiltonian::matrix_element(SharedDeterminant A, SharedDeterminant B)
 {
     double overlap = 0.0;
     double hamiltonian = 0.0;
@@ -140,7 +160,8 @@ std::pair<double,double> UOCDFT::matrix_element(SharedDeterminant A, SharedDeter
     }
     outfile->Flush();
 
-//    boost::shared_ptr<JK> jk = JK::build_JK();
+
+    /*
     if(num_alpha_nonc == 0 and num_beta_nonc == 0){
         overlap = Stilde;
         // Build the W^BA alpha density matrix
@@ -258,9 +279,9 @@ std::pair<double,double> UOCDFT::matrix_element(SharedDeterminant A, SharedDeter
         outfile->Printf("  W . h = %20.12f\n", one_body);
         outfile->Printf("  1/2 W . J - 1/2 Wa . Ka - 1/2 Wb . Kb = %20.12f\n", two_body);
 
-        outfile->Printf("  E1 = %20.12f\n", pc_hartree2ev * ((E_ + hamiltonian)/(1+overlap) - ground_state_energy) );
-        outfile->Printf("  E2 = %20.12f\n", pc_hartree2ev * ((E_ - hamiltonian)/(1-overlap) - ground_state_energy) );
-        outfile->Printf("  E1-E2 = %20.12f\n", pc_hartree2ev * ((E_ + hamiltonian)/(1+overlap) - (E_ - hamiltonian)/(1-overlap)));
+//        outfile->Printf("  E1 = %20.12f\n", pc_hartree2ev * ((E_ + hamiltonian)/(1+overlap) - ground_state_energy) );
+//        outfile->Printf("  E2 = %20.12f\n", pc_hartree2ev * ((E_ - hamiltonian)/(1-overlap) - ground_state_energy) );
+//        outfile->Printf("  E1-E2 = %20.12f\n", pc_hartree2ev * ((E_ + hamiltonian)/(1+overlap) - (E_ - hamiltonian)/(1-overlap)));
 
         C_left = jk_->C_left();
         C_left.clear();
@@ -396,11 +417,12 @@ std::pair<double,double> UOCDFT::matrix_element(SharedDeterminant A, SharedDeter
 //        throw FeatureNotImplemented("CKS", "H in the case of two beta noncoincidences", __FILE__, __LINE__);
     }
     outfile->Flush();
+    */
     return std::make_pair(overlap,hamiltonian);
 }
 
 boost::tuple<SharedMatrix,SharedMatrix,SharedVector,double>
-UOCDFT::corresponding_orbitals(SharedMatrix A, SharedMatrix B, Dimension dima, Dimension dimb)
+NOCI_Hamiltonian::corresponding_orbitals(SharedMatrix A, SharedMatrix B, Dimension dima, Dimension dimb)
 {
     // Form <B|S|A>
     TempMatrix->gemm(false,false,1.0,S_,A,0.0);
@@ -507,169 +529,3 @@ UOCDFT::corresponding_orbitals(SharedMatrix A, SharedMatrix B, Dimension dima, D
 
 }} // Namespaces
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-//        boost::shared_ptr<PetiteList> pet(new PetiteList(KS::basisset_, integral_));
-//        int nbf = KS::basisset_->nbf();
-//        SharedMatrix SO2AO_ = pet->sotoao();
-//        SharedMatrix Jnew_ao(new Matrix(nbf, nbf));
-//        Dn[0]->print();
-//        SO2AO_->print();
-//        fflush(outfile);
-
-//        Jnew_ao->remove_symmetry(Dn[0],SO2AO_);
-//        Jnew_ao->print();
-//        Jnew_ao->remove_symmetry(Jnew,SO2AO_);
-//        Jnew_ao->print();
-//        fflush(outfile);
-
-
-//        int maxi4 = INDEX4(nsopi_[0]+1,nsopi_[0]+1,nsopi_[0]+1,nsopi_[0]+1)+nsopi_[0]+1;
-//        double* integrals = new double[maxi4];
-//        for (int l = 0; l < maxi4; ++l){
-//            integrals[l] = 0.0;
-//        }
-
-//        IWL *iwl = new IWL(KS::psio_.get(), PSIF_SO_TEI, integral_threshold_, 1, 1);
-//        Label *lblptr = iwl->labels();
-//        Value *valptr = iwl->values();
-//        int labelIndex, pabs, qabs, rabs, sabs, prel, qrel, rrel, srel, psym, qsym, rsym, ssym;
-//        double value;
-//        bool lastBuffer;
-//        do{
-//            lastBuffer = iwl->last_buffer();
-//            for(int index = 0; index < iwl->buffer_count(); ++index){
-//                labelIndex = 4*index;
-//                pabs  = abs((int) lblptr[labelIndex++]);
-//                qabs  = (int) lblptr[labelIndex++];
-//                rabs  = (int) lblptr[labelIndex++];
-//                sabs  = (int) lblptr[labelIndex++];
-//                prel  = so2index_[pabs];
-//                qrel  = so2index_[qabs];
-//                rrel  = so2index_[rabs];
-//                srel  = so2index_[sabs];
-//                psym  = so2symblk_[pabs];
-//                qsym  = so2symblk_[qabs];
-//                rsym  = so2symblk_[rabs];
-//                ssym  = so2symblk_[sabs];
-//                value = (double) valptr[index];
-//                integrals[INDEX4(prel,qrel,rrel,srel)] = value;
-//            } /* end loop through current buffer */
-//            if(!lastBuffer) iwl->fetch();
-//        }while(!lastBuffer);
-//        iwl->set_keep_flag(1);
-//        delete iwl;
-//        double c2 = 0.0;
-
-//        SharedVector Ava = ACa->get_column(a_alpha_h,a_alpha_mo);
-//        SharedVector Bva = BCa->get_column(b_alpha_h,b_alpha_mo);
-//        SharedVector Avb = ACb->get_column(a_beta_h,a_beta_mo);
-//        SharedVector Bvb = BCb->get_column(b_beta_h,b_beta_mo);
-
-
-//        double* Ci = Bva->pointer();
-//        double* Cj = Ava->pointer();
-//        double* Ck = Bvb->pointer();
-//        double* Cl = Avb->pointer();
-//        for (int i = 0; i < nsopi_[0]; ++i){
-//            for (int j = 0; j < nsopi_[0]; ++j){
-//                for (int k = 0; k < nsopi_[0]; ++k){
-//                    for (int l = 0; l < nsopi_[0]; ++l){
-//                        c2 += integrals[INDEX4(i,j,k,l)] * Ci[i] * Cj[j] * Ck[k] * Cl[l];
-//                    }
-//                }
-//            }
-//        }
-//        delete[] integrals;
-//        outfile->Printf("  Matrix element from ints    = %20.12f\n",c2);
-
-//        {
-//        Dimension Aa_dim(nirrep_);
-//        Dimension Ab_dim(nirrep_);
-//        Dimension Ba_dim(nirrep_);
-//        Dimension Bb_dim(nirrep_);
-//        Aa_dim[a_alpha_h] = 1;
-//        Ab_dim[a_beta_h] = 1;
-//        Ba_dim[b_alpha_h] = 1;
-//        Bb_dim[b_beta_h] = 1;
-
-//        // Setting up and initialize the integraltransform object
-//        std::vector<boost::shared_ptr<MOSpace> > spaces;
-//        spaces.push_back(MOSpace::fzc);
-//        spaces.push_back(MOSpace::occ);
-//        spaces.push_back(MOSpace::vir);
-//        spaces.push_back(MOSpace::fzv);
-//        SharedMatrix Ama(new Matrix("F",nsopi_,Aa_dim));
-//        SharedMatrix Amb(new Matrix("F",nsopi_,Ab_dim));
-//        SharedMatrix Bma(new Matrix("F",nsopi_,Ba_dim));
-//        SharedMatrix Bmb(new Matrix("F",nsopi_,Bb_dim));
-
-//        SharedVector Ava = ACa->get_column(a_alpha_h,a_alpha_mo);
-//        SharedVector Bva = BCa->get_column(b_alpha_h,b_alpha_mo);
-//        SharedVector Avb = ACb->get_column(a_beta_h,a_beta_mo);
-//        SharedVector Bvb = BCb->get_column(b_beta_h,b_beta_mo);
-
-//        Ama->set_column(a_alpha_h,0,ACa->get_column(a_alpha_h,a_alpha_mo));
-//        Bma->set_column(b_alpha_h,0,BCa->get_column(b_alpha_h,b_alpha_mo));
-//        Amb->set_column(a_beta_h,0,ACb->get_column(a_beta_h,a_beta_mo));
-//        Bmb->set_column(b_beta_h,0,BCb->get_column(b_beta_h,b_beta_mo));
-
-//        Ama->print();
-//        Bma->print();
-//        Amb->print();
-//        Bmb->print();
-//        IntegralTransform* ints_ = new IntegralTransform(Bma,Ama,Bmb,Amb,spaces,
-//                                                    IntegralTransform::Restricted,
-//                                                    IntegralTransform::IWLOnly,
-//                                                    IntegralTransform::QTOrder,
-//                                                    IntegralTransform::None);
-//        ints_->transform_tei(MOSpace::fzc, MOSpace::occ, MOSpace::vir, MOSpace::fzv);
-//        delete ints_;
-
-//        IWL *iwl = new IWL(KS::psio_.get(), PSIF_MO_TEI, integral_threshold_, 1, 1);
-//        Label *lblptr = iwl->labels();
-//        Value *valptr = iwl->values();
-//        int labelIndex, pabs, qabs, rabs, sabs, prel, qrel, rrel, srel, psym, qsym, rsym, ssym;
-//        double value;
-//        bool lastBuffer;
-//        do{
-//            lastBuffer = iwl->last_buffer();
-//            for(int index = 0; index < iwl->buffer_count(); ++index){
-//                labelIndex = 4*index;
-//                pabs  = abs((int) lblptr[labelIndex++]);
-//                qabs  = (int) lblptr[labelIndex++];
-//                rabs  = (int) lblptr[labelIndex++];
-//                sabs  = (int) lblptr[labelIndex++];
-//                prel  = so2index_[pabs];
-//                qrel  = so2index_[qabs];
-//                rrel  = so2index_[rabs];
-//                srel  = so2index_[sabs];
-//                psym  = so2symblk_[pabs];
-//                qsym  = so2symblk_[qabs];
-//                rsym  = so2symblk_[rabs];
-//                ssym  = so2symblk_[sabs];
-//                value = (double) valptr[index];
-//                outfile->Printf("  (%2d %2d | %2d %2d) = %20.12f\n",pabs,qabs,rabs,sabs,value);
-//            } /* end loop through current buffer */
-//            if(!lastBuffer) iwl->fetch();
-//        }while(!lastBuffer);
-//        iwl->set_keep_flag(1);
-//        delete iwl;
-
-//        }

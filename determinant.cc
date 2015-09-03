@@ -12,6 +12,11 @@ Determinant::Determinant(double energy, SharedMatrix Ca, SharedMatrix Cb, const 
 {
 }
 
+Determinant::Determinant(SharedMatrix Ca, SharedMatrix Cb, const Dimension& nalphapi, const Dimension& nbetapi)
+    : energy_(0.0), nalphapi_(nalphapi), nbetapi_(nbetapi), Ca_(Ca->clone()), Cb_(Cb->clone())
+{
+}
+
 Determinant::Determinant(const Determinant& det)
 {
     energy_ = det.energy_;
